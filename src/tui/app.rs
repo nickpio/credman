@@ -4,6 +4,7 @@ use chrono::Utc;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use uuid::Uuid;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::crypto::normalize_mnemonic;
 use crate::model::Entry;
@@ -70,6 +71,7 @@ pub struct App {
     pub path: PathBuf,
     pub screen: Screen,
     pub seed_input: String,
+    pub show_seed: bool,
     pub unlock_error: Option<String>,
     pub vault: Option<UnlockedVault>,
     pub filter: String,
@@ -87,6 +89,7 @@ impl App {
             path,
             screen: Screen::Unlock,
             seed_input: String::new(),
+            show_seed: false,
             unlock_error: None,
             vault: None,
             filter: String::new(),
@@ -141,12 +144,29 @@ impl App {
         self.filtered_indices.get(self.selected).copied()
     }
 
+    pub fn seed_word_count(&self) -> usize {
+        self.seed_input.split_whitespace().count()
+    }
+
+    pub fn seed_display(&self) -> String {
+        if self.show_seed {
+            self.seed_input.clone()
+        } else {
+            self.seed_input
+                .split_whitespace()
+                .map(|_| "••••")
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+    }
+
     pub fn try_unlock(&mut self) {
-        let phrase = normalize_mnemonic(&self.seed_input);
+        let phrase = Zeroizing::new(normalize_mnemonic(&self.seed_input));
         match UnlockedVault::unlock(&self.path, &phrase) {
             Ok(vault) => {
                 self.vault = Some(vault);
-                self.seed_input.clear();
+                self.seed_input.zeroize();
+                self.show_seed = false;
                 self.unlock_error = None;
                 self.screen = Screen::Main;
                 self.status = "Unlocked. / filter  a add  e edit  d delete  c copy  r reveal  q quit"
@@ -155,7 +175,7 @@ impl App {
             }
             Err(_) => {
                 self.unlock_error = Some("Wrong seed phrase or corrupted vault".into());
-                self.seed_input.clear();
+                self.show_seed = false;
             }
         }
     }
@@ -295,5 +315,41 @@ impl App {
             InputField::Notes => &mut self.form.notes,
             InputField::Tags => &mut self.form.tags,
         }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.seed_input.zeroize();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seed_display_masks_words_without_revealing_lengths() {
+        let mut app = App::new(PathBuf::from("vault"));
+        app.seed_input = "short exceptionallylong".into();
+
+        assert_eq!(app.seed_word_count(), 2);
+        assert_eq!(app.seed_display(), "•••• ••••");
+
+        app.show_seed = true;
+        assert_eq!(app.seed_display(), "short exceptionallylong");
+    }
+
+    #[test]
+    fn failed_unlock_preserves_masked_seed_for_correction() {
+        let mut app = App::new(PathBuf::from("missing-vault"));
+        app.seed_input = "one two three".into();
+        app.show_seed = true;
+
+        app.try_unlock();
+
+        assert_eq!(app.seed_input, "one two three");
+        assert!(!app.show_seed);
+        assert!(app.unlock_error.is_some());
     }
 }

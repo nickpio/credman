@@ -32,6 +32,8 @@ credman
 credman tui
 ```
 
+Seed prompts are masked by default and show progress toward 12 words. Press `Ctrl+R` to temporarily reveal or hide the phrase; failed TUI unlocks keep the masked input so you can correct it.
+
 ## Vault location
 
 Default path: `~/.credman/vault`

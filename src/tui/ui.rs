@@ -41,8 +41,13 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
     .alignment(ratatui::layout::Alignment::Center);
     f.render_widget(title, chunks[0]);
 
+    let visibility = if app.show_seed { "shown" } else { "hidden" };
     let mut lines = vec![
-        Line::from(format!("Phrase: {}", app.seed_input)),
+        Line::from(format!("Phrase: {}", app.seed_display())),
+        Line::from(format!(
+            "Words: {}/12 · Ctrl+R toggle ({visibility})",
+            app.seed_word_count()
+        )),
         Line::from(""),
         Line::from("Enter to unlock · Ctrl+C / Esc to quit"),
     ];
