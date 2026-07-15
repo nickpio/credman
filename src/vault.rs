@@ -1,6 +1,9 @@
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -58,6 +61,33 @@ fn dirs_fallback_home() -> PathBuf {
     PathBuf::from(".")
 }
 
+fn ensure_secure_parent(path: &Path) -> Result<(), VaultError> {
+    let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+    #[cfg(unix)]
+    let created = !parent.exists();
+    fs::create_dir_all(parent)?;
+    #[cfg(unix)]
+    if created || is_default_vault_path(path) {
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn is_default_vault_path(path: &Path) -> bool {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .is_some_and(|home| path == home.join(".credman").join("vault"))
+}
+
+fn harden_file_permissions(_path: &Path) -> Result<(), VaultError> {
+    #[cfg(unix)]
+    fs::set_permissions(_path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
 fn read_u32(buf: &[u8], off: &mut usize) -> Result<u32, VaultError> {
     if *off + 4 > buf.len() {
         return Err(VaultError::Invalid("truncated header".into()));
@@ -81,6 +111,8 @@ impl VaultFile {
         if !path.exists() {
             return Err(VaultError::NotFound(path.to_path_buf()));
         }
+        ensure_secure_parent(path)?;
+        harden_file_permissions(path)?;
         let mut f = File::open(path)?;
         let mut buf = Vec::new();
         f.read_to_end(&mut buf)?;
@@ -135,13 +167,16 @@ impl VaultFile {
     }
 
     pub fn save(&self) -> Result<(), VaultError> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        ensure_secure_parent(&self.path)?;
         let data = self.serialize();
         let tmp = self.path.with_extension("tmp");
         {
-            let mut f = File::create(&tmp)?;
+            let mut options = OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            options.mode(0o600);
+            let mut f = options.open(&tmp)?;
+            harden_file_permissions(&tmp)?;
             f.write_all(&data)?;
             f.sync_all()?;
         }
@@ -162,9 +197,7 @@ impl UnlockedVault {
         if path.exists() {
             return Err(VaultError::AlreadyExists(path.to_path_buf()));
         }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        ensure_secure_parent(path)?;
         let salt = random_salt();
         let key = derive_key(mnemonic, &salt)?;
         let data = VaultData::new();
@@ -253,5 +286,38 @@ mod tests {
         let other = generate_mnemonic().unwrap();
         UnlockedVault::create(&path, &phrase).unwrap();
         assert!(UnlockedVault::unlock(&path, &other).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn vault_directory_and_file_use_private_permissions() {
+        let dir = tempdir().unwrap();
+        let vault_dir = dir.path().join(".credman");
+        let path = vault_dir.join("vault");
+        let phrase = generate_mnemonic().unwrap();
+
+        UnlockedVault::create(&path, &phrase).unwrap();
+
+        assert_eq!(
+            fs::metadata(&vault_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        fs::set_permissions(&vault_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        VaultFile::load(&path).unwrap();
+
+        assert_eq!(
+            fs::metadata(&vault_dir).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }

@@ -34,6 +34,8 @@ credman tui
 
 Seed prompts are masked by default and show progress toward 12 words. Press `Ctrl+R` to temporarily reveal or hide the phrase; failed TUI unlocks keep the masked input so you can correct it.
 
+`credman add --generate` offers to copy the generated password, then offers an explicit terminal reveal if copying is declined or unavailable. Name lookup prefers an exact match; ambiguous partial matches list candidates so you can rerun the command with an exact name or ID.
+
 ## Vault location
 
 Default path: `~/.credman/vault`
@@ -81,6 +83,7 @@ seed phrase → Argon2id(salt) → AES-256-GCM key → encrypted vault file
 - **Salt** and **nonce** live in the vault header; ciphertext is authenticated (GCM).
 - Wrong seed or tampered file → decryption failure.
 - Key material is wrapped with `zeroize` and dropped when the process exits.
+- On Unix, new vault directories use `0700`, the default `~/.credman` directory is hardened to `0700`, and vault files use `0600`.
 - Each CLI command unlocks for that process only (no background agent in v1).
 
 ### Threat model (honest)

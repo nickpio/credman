@@ -254,6 +254,37 @@ fn generate_password(len: usize) -> String {
         .collect()
 }
 
+fn offer_generated_password(password: &str, entry_id: Uuid) -> Result<()> {
+    let copy = Confirm::new()
+        .with_prompt("Copy generated password to clipboard?")
+        .default(true)
+        .interact()?;
+    if copy {
+        match arboard::Clipboard::new().and_then(|mut clipboard| {
+            clipboard.set_text(password.to_string())
+        }) {
+            Ok(()) => {
+                eprintln!("Generated password copied to clipboard.");
+                return Ok(());
+            }
+            Err(error) => eprintln!("Clipboard unavailable: {error}"),
+        }
+    }
+
+    let reveal = Confirm::new()
+        .with_prompt("Show generated password in the terminal?")
+        .default(false)
+        .interact()?;
+    if reveal {
+        println!("Generated password: {password}");
+    } else {
+        println!(
+            "Generated password stored. Retrieve it with `credman get {entry_id} --password-only`."
+        );
+    }
+    Ok(())
+}
+
 fn cmd_add(path: &PathBuf, generate: bool, length: usize) -> Result<()> {
     let mut vault = unlock(path)?;
     let name: String = Input::new().with_prompt("Name").interact_text()?;
@@ -261,10 +292,13 @@ fn cmd_add(path: &PathBuf, generate: bool, length: usize) -> Result<()> {
         .with_prompt("Username")
         .allow_empty(true)
         .interact_text()?;
-    let password = if generate {
-        let p = generate_password(length);
-        println!("Generated password ({length} chars)");
-        p
+    let generated_password = if generate {
+        Some(Zeroizing::new(generate_password(length)))
+    } else {
+        None
+    };
+    let password = if let Some(generated) = &generated_password {
+        generated.as_str().to_string()
     } else {
         Password::new()
             .with_prompt("Password")
@@ -299,18 +333,24 @@ fn cmd_add(path: &PathBuf, generate: bool, length: usize) -> Result<()> {
         tags,
         updated_at: Utc::now(),
     };
-    println!("Added '{}' ({})", entry.name, entry.id);
+    let entry_id = entry.id;
+    let entry_name = entry.name.clone();
     vault.data.entries.push(entry);
     vault.persist()?;
+    println!("Added '{entry_name}' ({entry_id})");
+    if let Some(password) = generated_password {
+        if let Err(error) = offer_generated_password(&password, entry_id) {
+            eprintln!(
+                "Could not present the generated password: {error}. Retrieve it with `credman get {entry_id} --password-only`."
+            );
+        }
+    }
     Ok(())
 }
 
 fn cmd_get(path: &PathBuf, query: &str, password_only: bool, clipboard: bool) -> Result<()> {
     let vault = unlock(path)?;
-    let entry = vault
-        .data
-        .find(query)
-        .with_context(|| format!("no entry matching '{query}'"))?;
+    let entry = vault.data.find(query)?;
 
     if clipboard {
         let mut clip = arboard::Clipboard::new().context("clipboard unavailable")?;
@@ -367,10 +407,7 @@ fn cmd_list(path: &PathBuf, secrets: bool) -> Result<()> {
 
 fn cmd_edit(path: &PathBuf, query: &str) -> Result<()> {
     let mut vault = unlock(path)?;
-    let entry = vault
-        .data
-        .find_mut(query)
-        .with_context(|| format!("no entry matching '{query}'"))?;
+    let entry = vault.data.find_mut(query)?;
 
     let name: String = Input::new()
         .with_prompt("Name")
@@ -423,12 +460,9 @@ fn cmd_edit(path: &PathBuf, query: &str) -> Result<()> {
 
 fn cmd_rm(path: &PathBuf, query: &str, yes: bool) -> Result<()> {
     let mut vault = unlock(path)?;
-    let name = vault
-        .data
-        .find(query)
-        .with_context(|| format!("no entry matching '{query}'"))?
-        .name
-        .clone();
+    let entry = vault.data.find(query)?;
+    let id = entry.id;
+    let name = entry.name.clone();
     if !yes
         && !Confirm::new()
             .with_prompt(format!("Delete '{name}'?"))
@@ -437,7 +471,7 @@ fn cmd_rm(path: &PathBuf, query: &str, yes: bool) -> Result<()> {
     {
         bail!("aborted");
     }
-    vault.data.remove(query);
+    vault.data.remove(&id.to_string())?;
     vault.persist()?;
     println!("Deleted '{name}'");
     let _ = io::stdout().flush();
