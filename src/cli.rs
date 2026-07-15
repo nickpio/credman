@@ -11,9 +11,11 @@ use rand::Rng;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::clipboard::{self, HelperSchedule};
 use crate::crypto::{generate_mnemonic, normalize_mnemonic, validate_mnemonic};
 use crate::model::Entry;
 use crate::tui;
+use crate::validation::{validate_entry, validate_generated_password_length};
 use crate::vault::{UnlockedVault, VaultFile};
 
 #[derive(Parser, Debug)]
@@ -67,6 +69,8 @@ pub enum Commands {
     },
     /// Open the interactive TUI
     Tui,
+    #[command(hide = true)]
+    ClipboardClear,
 }
 
 pub fn run() -> Result<()> {
@@ -85,6 +89,9 @@ pub fn run() -> Result<()> {
         Some(Commands::List { secrets }) => cmd_list(&vault_path, secrets),
         Some(Commands::Edit { query }) => cmd_edit(&vault_path, &query),
         Some(Commands::Rm { query, yes }) => cmd_rm(&vault_path, &query, yes),
+        Some(Commands::ClipboardClear) => {
+            clipboard::run_clear_helper().context("clipboard clear helper failed")
+        }
     }
 }
 
@@ -199,7 +206,8 @@ fn unlock(path: &PathBuf) -> Result<UnlockedVault> {
 }
 
 fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
-    if path.exists() {
+    let replace = path.exists();
+    if replace {
         if !force {
             bail!(
                 "vault already exists at {}. Use --force to overwrite.",
@@ -216,7 +224,6 @@ fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
         {
             bail!("aborted");
         }
-        std::fs::remove_file(path)?;
     }
 
     let phrase = Zeroizing::new(generate_mnemonic()?);
@@ -240,7 +247,11 @@ fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
         bail!("confirmation did not match; vault not created");
     }
 
-    UnlockedVault::create(path, &phrase)?;
+    if replace {
+        UnlockedVault::replace(path, &phrase)?;
+    } else {
+        UnlockedVault::create(path, &phrase)?;
+    }
     println!("Vault created at {}", path.display());
     Ok(())
 }
@@ -260,11 +271,18 @@ fn offer_generated_password(password: &str, entry_id: Uuid) -> Result<()> {
         .default(true)
         .interact()?;
     if copy {
-        match arboard::Clipboard::new().and_then(|mut clipboard| {
-            clipboard.set_text(password.to_string())
-        }) {
-            Ok(()) => {
-                eprintln!("Generated password copied to clipboard.");
+        match clipboard::copy_with_helper(password) {
+            Ok(HelperSchedule::Scheduled) => {
+                eprintln!(
+                    "Generated password copied to clipboard (clears in {} seconds if unchanged).",
+                    clipboard::CLIPBOARD_TTL.as_secs()
+                );
+                return Ok(());
+            }
+            Ok(HelperSchedule::Unavailable(error)) => {
+                eprintln!(
+                    "Generated password copied, but automatic clearing could not be scheduled: {error}. Clear the clipboard manually."
+                );
                 return Ok(());
             }
             Err(error) => eprintln!("Clipboard unavailable: {error}"),
@@ -286,6 +304,9 @@ fn offer_generated_password(password: &str, entry_id: Uuid) -> Result<()> {
 }
 
 fn cmd_add(path: &PathBuf, generate: bool, length: usize) -> Result<()> {
+    if generate {
+        validate_generated_password_length(length)?;
+    }
     let mut vault = unlock(path)?;
     let name: String = Input::new().with_prompt("Name").interact_text()?;
     let username: String = Input::new()
@@ -333,6 +354,7 @@ fn cmd_add(path: &PathBuf, generate: bool, length: usize) -> Result<()> {
         tags,
         updated_at: Utc::now(),
     };
+    validate_entry(&entry)?;
     let entry_id = entry.id;
     let entry_name = entry.name.clone();
     vault.data.entries.push(entry);
@@ -353,10 +375,15 @@ fn cmd_get(path: &PathBuf, query: &str, password_only: bool, clipboard: bool) ->
     let entry = vault.data.find(query)?;
 
     if clipboard {
-        let mut clip = arboard::Clipboard::new().context("clipboard unavailable")?;
-        clip.set_text(entry.password.clone())
-            .context("failed to set clipboard")?;
-        eprintln!("Password copied to clipboard.");
+        match crate::clipboard::copy_with_helper(&entry.password)? {
+            HelperSchedule::Scheduled => eprintln!(
+                "Password copied to clipboard (clears in {} seconds if unchanged).",
+                crate::clipboard::CLIPBOARD_TTL.as_secs()
+            ),
+            HelperSchedule::Unavailable(error) => eprintln!(
+                "Password copied, but automatic clearing could not be scheduled: {error}. Clear the clipboard manually."
+            ),
+        }
         return Ok(());
     }
 
@@ -453,6 +480,7 @@ fn cmd_edit(path: &PathBuf, query: &str) -> Result<()> {
         .filter(|s| !s.is_empty())
         .collect();
     entry.updated_at = Utc::now();
+    validate_entry(entry)?;
     println!("Updated '{}'", entry.name);
     vault.persist()?;
     Ok(())

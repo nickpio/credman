@@ -5,6 +5,7 @@ use super::app::{App, Screen};
 
 /// Returns true when the app should quit.
 pub fn handle_event(app: &mut App) -> Result<bool> {
+    app.tick_clipboard();
     if !event::poll(std::time::Duration::from_millis(200))? {
         return Ok(false);
     }
@@ -113,7 +114,7 @@ fn handle_form(app: &mut App, code: KeyCode) {
             app.active_form_value_mut().pop();
         }
         KeyCode::Char(c) if !c.is_control() => {
-            app.active_form_value_mut().push(c);
+            app.push_form_char(c);
         }
         _ => {}
     }
