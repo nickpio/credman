@@ -1,0 +1,100 @@
+# credman
+
+Local credential manager for the terminal. Credentials are encrypted at rest with AES-256-GCM and unlocked with a BIP39 seed phrase (Argon2id key derivation). No network access.
+
+## Install
+
+```bash
+cargo install --path .
+```
+
+Or build a release binary:
+
+```bash
+cargo build --release
+./target/release/credman --help
+```
+
+## Quick start
+
+```bash
+# Create a vault (shows a 12-word seed once — write it down)
+credman init
+
+# Add / list / get credentials (prompts for seed each time)
+credman add
+credman list
+credman get github
+
+# Interactive TUI (default when no subcommand is given)
+credman
+# or
+credman tui
+```
+
+## Vault location
+
+Default path: `~/.credman/vault`
+
+Override with `--vault /path/to/vault` or `CREDMAN_VAULT`.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `credman init` | Create vault; display and confirm 12-word seed phrase |
+| `credman add` | Add an entry (interactive prompts) |
+| `credman add --generate` | Add with a generated password |
+| `credman get <name\|id>` | Show an entry |
+| `credman get <q> --password-only` | Print only the password |
+| `credman get <q> --clipboard` | Copy password to clipboard |
+| `credman list` | List entries (no secrets) |
+| `credman list --secrets` | Include passwords |
+| `credman edit <name\|id>` | Edit an entry |
+| `credman rm <name\|id>` | Delete an entry |
+| `credman tui` | Open the TUI |
+
+## TUI keys
+
+After unlock:
+
+| Key | Action |
+|-----|--------|
+| `/` | Filter list |
+| `j` / `k` or arrows | Move selection |
+| `a` | Add entry |
+| `e` | Edit entry |
+| `d` | Delete entry |
+| `c` | Copy password |
+| `r` or Space | Reveal / hide password |
+| `q` / Esc | Quit (vault re-locked) |
+
+## Security model
+
+```
+seed phrase → Argon2id(salt) → AES-256-GCM key → encrypted vault file
+```
+
+- **Seed phrase** is a BIP39 12-word mnemonic — the only unlock secret. It is never stored by credman.
+- **Salt** and **nonce** live in the vault header; ciphertext is authenticated (GCM).
+- Wrong seed or tampered file → decryption failure.
+- Key material is wrapped with `zeroize` and dropped when the process exits.
+- Each CLI command unlocks for that process only (no background agent in v1).
+
+### Threat model (honest)
+
+| Threat | Status |
+|--------|--------|
+| Attacker steals vault file without seed | Cannot decrypt |
+| Attacker has seed + vault file | Full access (by design) |
+| Malware in your user session while unlocked | Can scrape memory / terminal — OS compromise wins |
+| Lost seed phrase | Vault is unrecoverable |
+
+**Backup**: keep an offline copy of the seed phrase. Optionally back up the encrypted vault file separately — without the seed it is useless to an attacker; with the seed it restores everything.
+
+## Development
+
+```bash
+cargo test
+cargo run -- --help
+```
