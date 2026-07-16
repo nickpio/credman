@@ -44,8 +44,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, vault_path: &P
     loop {
         terminal.draw(|f| draw(f, &app))?;
         if app.unlocking {
-            // Frame is already flushed by draw; now the blocking KDF can run.
-            app.finish_unlock();
+            if app.poll_unlock() {
+                // Keep animating while Argon2 runs on the worker thread.
+                std::thread::sleep(std::time::Duration::from_millis(80));
+                continue;
+            }
             continue;
         }
         if handle_event(&mut app)? {

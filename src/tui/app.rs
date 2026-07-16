@@ -1,4 +1,7 @@
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::thread;
+use std::time::Instant;
 
 use chrono::Utc;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -33,6 +36,29 @@ pub enum StatusKind {
     Success,
     Error,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteAction {
+    Add,
+    Edit,
+    Delete,
+    Copy,
+    Reveal,
+    Filter,
+    Help,
+    Quit,
+}
+
+pub const PALETTE_ACTIONS: &[(&str, &str, PaletteAction)] = &[
+    ("add", "Add a new entry", PaletteAction::Add),
+    ("edit", "Edit the selected entry", PaletteAction::Edit),
+    ("delete", "Delete the selected entry", PaletteAction::Delete),
+    ("copy", "Copy password to clipboard", PaletteAction::Copy),
+    ("reveal", "Reveal or hide password", PaletteAction::Reveal),
+    ("filter", "Filter entries", PaletteAction::Filter),
+    ("help", "Show keyboard shortcuts", PaletteAction::Help),
+    ("quit", "Quit and lock vault", PaletteAction::Quit),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputField {
@@ -87,8 +113,11 @@ pub struct App {
     pub seed_input: String,
     pub show_seed: bool,
     pub unlock_error: Option<String>,
-    /// Set by Enter; main loop draws "Unlocking…" then calls `finish_unlock`.
+    /// Set by Enter; main loop animates progress until the worker finishes.
     pub unlocking: bool,
+    pub unlock_frame: u32,
+    unlock_started: Option<Instant>,
+    unlock_rx: Option<Receiver<Result<UnlockedVault, VaultError>>>,
     pub vault: Option<UnlockedVault>,
     pub filter: String,
     pub filtering: bool,
@@ -98,6 +127,10 @@ pub struct App {
     pub status_kind: StatusKind,
     pub form: FormState,
     pub filtered_indices: Vec<usize>,
+    pub show_help: bool,
+    pub palette_open: bool,
+    pub palette_query: String,
+    pub palette_selected: usize,
     delete_target: Option<Uuid>,
     clipboard_copy: Option<PendingClipboard>,
 }
@@ -116,6 +149,9 @@ impl App {
             show_seed: false,
             unlock_error: None,
             unlocking: false,
+            unlock_frame: 0,
+            unlock_started: None,
+            unlock_rx: None,
             vault: None,
             filter: String::new(),
             filtering: false,
@@ -124,13 +160,37 @@ impl App {
             status: if exists {
                 "Enter seed phrase and press Enter".into()
             } else {
-                "No vault yet — create one to get started".into()
+                "No vault yet — press i / r for setup options".into()
             },
             status_kind: StatusKind::Info,
             form: FormState::default(),
             filtered_indices: Vec::new(),
+            show_help: false,
+            palette_open: false,
+            palette_query: String::new(),
+            palette_selected: 0,
             delete_target: None,
             clipboard_copy: None,
+        }
+    }
+
+    pub fn device_hostname() -> String {
+        gethostname::gethostname()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    pub fn unlock_progress_label(&self) -> String {
+        let spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let frame = spinner[(self.unlock_frame as usize) % spinner.len()];
+        let elapsed = self
+            .unlock_started
+            .map(|t| t.elapsed().as_millis())
+            .unwrap_or(0);
+        if elapsed < 150 {
+            format!("{frame} Loading vault…")
+        } else {
+            format!("{frame} Deriving key with Argon2id (intentionally slow)…")
         }
     }
 
@@ -209,7 +269,7 @@ impl App {
         }
     }
 
-    /// Validate the phrase and queue unlock so the UI can show a busy state first.
+    /// Validate the phrase and start unlock on a worker thread so the UI can animate.
     pub fn start_unlock(&mut self) {
         if self.unlocking {
             return;
@@ -223,26 +283,44 @@ impl App {
         }
         self.unlock_error = None;
         self.unlocking = true;
+        self.unlock_frame = 0;
+        self.unlock_started = Some(Instant::now());
         self.info("Unlocking…");
+
+        let path = self.path.clone();
+        let phrase = Zeroizing::new(phrase);
+        let (tx, rx) = mpsc::channel();
+        self.unlock_rx = Some(rx);
+        thread::spawn(move || {
+            let result = UnlockedVault::unlock(&path, &phrase);
+            let _ = tx.send(result);
+        });
     }
 
-    /// Run after a redraw with `unlocking == true`.
-    pub fn finish_unlock(&mut self) {
-        let phrase = Zeroizing::new(normalize_mnemonic(&self.seed_input));
-        match UnlockedVault::unlock(&self.path, &phrase) {
-            Ok(vault) => {
+    /// Poll the unlock worker. Returns true while unlock is still in progress.
+    pub fn poll_unlock(&mut self) -> bool {
+        let Some(rx) = self.unlock_rx.as_ref() else {
+            return false;
+        };
+        match rx.try_recv() {
+            Ok(Ok(vault)) => {
+                let count = vault.data.entries.len();
                 self.vault = Some(vault);
                 self.seed_input.zeroize();
                 self.show_seed = false;
                 self.unlock_error = None;
                 self.unlocking = false;
+                self.unlock_rx = None;
+                self.unlock_started = None;
                 self.screen = Screen::Main;
-                self.success(
-                    "Unlocked. / filter  a add  e edit  d delete  c copy  r reveal  q quit",
-                );
+                let host = Self::device_hostname();
+                self.success(format!(
+                    "Vault unlocked — {count} entries loaded on {host}"
+                ));
                 self.recompute_filter();
+                false
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 let (msg, clear_seed) = format_unlock_error(&e);
                 self.unlock_error = Some(msg);
                 if clear_seed {
@@ -250,8 +328,88 @@ impl App {
                 }
                 self.show_seed = false;
                 self.unlocking = false;
+                self.unlock_rx = None;
+                self.unlock_started = None;
                 self.error_status("Unlock failed");
+                false
             }
+            Err(TryRecvError::Empty) => {
+                self.unlock_frame = self.unlock_frame.wrapping_add(1);
+                true
+            }
+            Err(TryRecvError::Disconnected) => {
+                self.unlocking = false;
+                self.unlock_rx = None;
+                self.unlock_started = None;
+                self.unlock_error = Some("Unlock worker stopped unexpectedly".into());
+                self.error_status("Unlock failed");
+                false
+            }
+        }
+    }
+
+    pub fn open_palette(&mut self) {
+        self.palette_open = true;
+        self.palette_query.clear();
+        self.palette_selected = 0;
+        self.show_help = false;
+        self.info("Type to find an action · Enter run · Esc cancel");
+    }
+
+    pub fn close_palette(&mut self) {
+        self.palette_open = false;
+        self.palette_query.clear();
+        self.palette_selected = 0;
+    }
+
+    pub fn filtered_palette_actions(&self) -> Vec<(usize, &'static str, &'static str, PaletteAction)> {
+        let matcher = SkimMatcherV2::default();
+        let mut scored: Vec<(i64, usize, &'static str, &'static str, PaletteAction)> = PALETTE_ACTIONS
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (name, desc, action))| {
+                if self.palette_query.is_empty() {
+                    return Some((0, i, *name, *desc, *action));
+                }
+                let hay = format!("{name} {desc}");
+                matcher
+                    .fuzzy_match(&hay, &self.palette_query)
+                    .map(|score| (score, i, *name, *desc, *action))
+            })
+            .collect();
+        if !self.palette_query.is_empty() {
+            scored.sort_by(|a, b| b.0.cmp(&a.0));
+        }
+        scored
+            .into_iter()
+            .map(|(_, i, name, desc, action)| (i, name, desc, action))
+            .collect()
+    }
+
+    pub fn run_palette_action(&mut self, action: PaletteAction) {
+        self.close_palette();
+        match action {
+            PaletteAction::Add => self.open_add(),
+            PaletteAction::Edit => self.open_edit(),
+            PaletteAction::Delete => self.request_delete(),
+            PaletteAction::Copy => self.copy_password(),
+            PaletteAction::Reveal => {
+                self.show_password = !self.show_password;
+                self.info(if self.show_password {
+                    "Password revealed"
+                } else {
+                    "Password hidden"
+                });
+            }
+            PaletteAction::Filter => {
+                self.filtering = true;
+                self.info("Type to filter, Enter done, Esc clear");
+            }
+            PaletteAction::Help => {
+                self.show_help = true;
+                self.info("Press ? or Esc to close help");
+            }
+            PaletteAction::Quit => self.screen = Screen::Quit,
         }
     }
 
@@ -646,5 +804,18 @@ mod tests {
 
         assert_eq!(app.form.name.chars().count(), MAX_NAME_CHARS);
         assert!(app.status.contains("limited"));
+    }
+
+    #[test]
+    fn palette_fuzzy_matches_common_actions() {
+        let mut app = App::new(PathBuf::from("vault"));
+        app.palette_query = "cpy".into();
+        let actions = app.filtered_palette_actions();
+        assert!(actions.iter().any(|(_, name, _, _)| *name == "copy"));
+
+        app.palette_query = "quit".into();
+        let actions = app.filtered_palette_actions();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].1, "quit");
     }
 }

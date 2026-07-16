@@ -265,6 +265,12 @@ fn offer_seed_fingerprint(phrase: &str) -> Result<()> {
     Ok(())
 }
 
+fn device_hostname() -> String {
+    gethostname::gethostname()
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn cmd_init(path: &PathBuf, force: bool, cli_seed: Option<&str>) -> Result<()> {
     let replace = path.exists();
     if replace {
@@ -325,11 +331,12 @@ fn cmd_restore(path: &PathBuf, force: bool, cli_seed: Option<&str>) -> Result<()
         );
         let phrase = prompt_seed(cli_seed)?;
         let vault = UnlockedVault::unlock(path, &phrase).context("failed to unlock vault")?;
+        let host = device_hostname();
         println!(
-            "Vault verified at {} ({} entries).",
-            path.display(),
+            "Vault restored — {} entries loaded on {host}.",
             vault.data.entries.len()
         );
+        println!("Vault path: {}", path.display());
         println!("You can use credman normally on this device.");
         offer_seed_fingerprint(&phrase)?;
         return Ok(());
@@ -369,6 +376,8 @@ fn cmd_restore(path: &PathBuf, force: bool, cli_seed: Option<&str>) -> Result<()
     } else {
         UnlockedVault::create(path, &phrase)?;
     }
+    let host = device_hostname();
+    println!("Vault restored — 0 entries loaded on {host}.");
     println!("Vault created at {}", path.display());
     offer_seed_fingerprint(&phrase)?;
     Ok(())

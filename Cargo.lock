@@ -403,6 +403,7 @@ dependencies = [
  "dirs",
  "fs2",
  "fuzzy-matcher",
+ "gethostname",
  "rand",
  "ratatui",
  "rpassword",

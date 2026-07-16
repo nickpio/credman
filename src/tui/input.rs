@@ -24,7 +24,7 @@ pub fn handle_event(app: &mut App) -> Result<bool> {
     match app.screen {
         Screen::Setup => handle_setup(app, key.code),
         Screen::Unlock => handle_unlock(app, key),
-        Screen::Main => handle_main(app, key.code),
+        Screen::Main => handle_main(app, key),
         Screen::Add | Screen::Edit => handle_form(app, key.code),
         Screen::ConfirmDelete => handle_confirm(app, key.code),
         Screen::Quit => return Ok(true),
@@ -36,6 +36,12 @@ fn handle_setup(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
             app.screen = Screen::Quit;
+        }
+        KeyCode::Char('i') | KeyCode::Char('I') => {
+            app.info("Exit the TUI, then run: credman init");
+        }
+        KeyCode::Char('r') | KeyCode::Char('R') => {
+            app.info("Exit the TUI, then run: credman restore");
         }
         _ => {}
     }
@@ -65,9 +71,23 @@ fn handle_unlock(app: &mut App, key: KeyEvent) {
     }
 }
 
-fn handle_main(app: &mut App, code: KeyCode) {
+fn handle_main(app: &mut App, key: KeyEvent) {
+    if app.palette_open {
+        handle_palette(app, key.code);
+        return;
+    }
+    if app.show_help {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                app.show_help = false;
+                app.info("Help closed");
+            }
+            _ => {}
+        }
+        return;
+    }
     if app.filtering {
-        match code {
+        match key.code {
             KeyCode::Esc => {
                 app.filtering = false;
                 app.filter.clear();
@@ -91,8 +111,13 @@ fn handle_main(app: &mut App, code: KeyCode) {
         return;
     }
 
-    match code {
+    match key.code {
         KeyCode::Char('q') | KeyCode::Esc => app.screen = Screen::Quit,
+        KeyCode::Char('?') => {
+            app.show_help = true;
+            app.info("Press ? or Esc to close help");
+        }
+        KeyCode::Char(':') => app.open_palette(),
         KeyCode::Char('/') => {
             app.filtering = true;
             app.info("Type to filter, Enter done, Esc clear");
@@ -105,6 +130,40 @@ fn handle_main(app: &mut App, code: KeyCode) {
         KeyCode::Char('c') => app.copy_password(),
         KeyCode::Char('r') | KeyCode::Char(' ') => {
             app.show_password = !app.show_password;
+        }
+        _ => {}
+    }
+}
+
+fn handle_palette(app: &mut App, code: KeyCode) {
+    let actions = app.filtered_palette_actions();
+    match code {
+        KeyCode::Esc => {
+            app.close_palette();
+            app.info("Cancelled");
+        }
+        KeyCode::Enter => {
+            if let Some((_, _, _, action)) = actions.get(app.palette_selected) {
+                app.run_palette_action(*action);
+            }
+        }
+        KeyCode::Down | KeyCode::Tab => {
+            if !actions.is_empty() {
+                app.palette_selected = (app.palette_selected + 1) % actions.len();
+            }
+        }
+        KeyCode::Up | KeyCode::BackTab => {
+            if !actions.is_empty() {
+                app.palette_selected = (app.palette_selected + actions.len() - 1) % actions.len();
+            }
+        }
+        KeyCode::Backspace => {
+            app.palette_query.pop();
+            app.palette_selected = 0;
+        }
+        KeyCode::Char(c) if !c.is_control() => {
+            app.palette_query.push(c);
+            app.palette_selected = 0;
         }
         _ => {}
     }
