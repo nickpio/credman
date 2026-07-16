@@ -63,10 +63,7 @@ impl VaultFile {
 }
 
 fn dirs_fallback_home() -> PathBuf {
-    if let Ok(h) = std::env::var("HOME") {
-        return PathBuf::from(h);
-    }
-    PathBuf::from(".")
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn ensure_secure_parent(path: &Path) -> Result<(), VaultError> {
@@ -85,9 +82,7 @@ fn ensure_secure_parent(path: &Path) -> Result<(), VaultError> {
 
 #[cfg(unix)]
 fn is_default_vault_path(path: &Path) -> bool {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .is_some_and(|home| path == home.join(".credman").join("vault"))
+    dirs::home_dir().is_some_and(|home| path == home.join(".credman").join("vault"))
 }
 
 fn harden_file_permissions(_path: &Path) -> Result<(), VaultError> {

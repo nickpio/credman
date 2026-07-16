@@ -21,6 +21,9 @@ cargo build --release
 # Create a vault (shows a 12-word seed once — write it down)
 credman init
 
+# On another device: copy the encrypted vault file, then verify your seed
+credman restore
+
 # Add / list / get credentials (prompts for seed each time)
 credman add
 credman list
@@ -42,11 +45,15 @@ Default path: `~/.credman/vault`
 
 Override with `--vault /path/to/vault` or `CREDMAN_VAULT`.
 
+To use the same vault on another device, copy the encrypted vault file to that path (or point `--vault` / `CREDMAN_VAULT` at it), then run `credman restore` and enter your seed phrase. The seed alone cannot recreate vault contents — the file stores a random salt required for decryption.
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `credman init` | Create vault; display and confirm 12-word seed phrase |
+| `credman restore` | Verify a copied vault with your seed, or create an empty vault from an existing seed |
+| `credman restore --force` | Overwrite an existing vault with a new empty vault using a provided seed |
 | `credman add` | Add an entry (interactive prompts) |
 | `credman add --generate [--length 8..128]` | Add with a generated password (default length: 24) |
 | `credman get <name\|id>` | Show an entry |
@@ -129,7 +136,7 @@ seed phrase → Argon2id(salt) → AES-256-GCM key → encrypted vault file
 | Malware in your user session while unlocked | Can scrape memory / terminal — OS compromise wins |
 | Lost seed phrase | Vault is unrecoverable |
 
-**Backup**: keep an offline copy of the seed phrase. Optionally back up the encrypted vault file separately — without the seed it is useless to an attacker; with the seed it restores everything.
+**Backup**: keep an offline copy of the seed phrase. Optionally back up the encrypted vault file separately — without the seed it is useless to an attacker; with the seed it restores everything. On a new device, copy the vault file and run `credman restore`.
 
 See [SECURITY.md](SECURITY.md) for trust boundaries, operational details, limitations, and recovery guidance.
 

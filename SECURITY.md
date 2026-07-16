@@ -118,8 +118,10 @@ To restore:
 
 1. place the encrypted backup at the intended vault path;
 2. ensure no credman process is using that vault;
-3. run `credman --vault /path/to/vault list`;
-4. enter the matching seed phrase.
+3. run `credman restore` (or `credman --vault /path/to/vault restore`);
+4. enter the matching seed phrase to verify decryption.
+
+If no vault file is present, `credman restore` can create a new empty vault from an existing seed. That does not recover previous entries — the encrypted vault backup is required for that. `credman restore --force` overwrites an existing vault with a new empty one.
 
 Do not edit the binary vault, lock, or temporary files manually. There is no seed recovery or reset flow.
 

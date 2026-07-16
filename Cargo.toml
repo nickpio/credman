@@ -16,6 +16,7 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.28"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+dirs = "6"
 fs2 = "0.4.3"
 fuzzy-matcher = "0.3"
 rand = "0.8"

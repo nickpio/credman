@@ -37,6 +37,12 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Unlock an existing vault file, or create one from an existing seed
+    Restore {
+        /// Overwrite existing vault with a new empty vault (dangerous)
+        #[arg(long)]
+        force: bool,
+    },
     /// Add a credential
     Add {
         /// Generate a random password
@@ -80,6 +86,7 @@ pub fn run() -> Result<()> {
     match cli.command {
         None | Some(Commands::Tui) => tui::run(&vault_path),
         Some(Commands::Init { force }) => cmd_init(&vault_path, force),
+        Some(Commands::Restore { force }) => cmd_restore(&vault_path, force),
         Some(Commands::Add { generate, length }) => cmd_add(&vault_path, generate, length),
         Some(Commands::Get {
             query,
@@ -248,6 +255,59 @@ fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
     }
 
     if replace {
+        UnlockedVault::replace(path, &phrase)?;
+    } else {
+        UnlockedVault::create(path, &phrase)?;
+    }
+    println!("Vault created at {}", path.display());
+    Ok(())
+}
+
+fn cmd_restore(path: &PathBuf, force: bool) -> Result<()> {
+    if path.exists() && !force {
+        println!(
+            "Found vault at {}. Enter your seed phrase to verify access.\n",
+            path.display()
+        );
+        let phrase = prompt_seed()?;
+        let vault = UnlockedVault::unlock(path, &phrase).context("failed to unlock vault")?;
+        println!(
+            "Vault verified at {} ({} entries).",
+            path.display(),
+            vault.data.entries.len()
+        );
+        println!("You can use credman normally on this device.");
+        return Ok(());
+    }
+
+    if path.exists() {
+        if !Confirm::new()
+            .with_prompt(format!(
+                "Overwrite vault at {} with a new empty vault? This cannot be undone.",
+                path.display()
+            ))
+            .default(false)
+            .interact()?
+        {
+            bail!("aborted");
+        }
+    } else {
+        println!(
+            "No vault at {}.\n\
+             If you have an encrypted vault backup, copy it there and run `credman restore` again.\n\
+             Otherwise, enter an existing seed phrase to create a new empty vault.\n",
+            path.display()
+        );
+    }
+
+    let phrase = prompt_seed()?;
+    println!("\nRe-enter your seed phrase to confirm.\n");
+    let confirmed = prompt_seed()?;
+    if confirmed.as_str() != phrase.as_str() {
+        bail!("confirmation did not match; vault not created");
+    }
+
+    if path.exists() {
         UnlockedVault::replace(path, &phrase)?;
     } else {
         UnlockedVault::create(path, &phrase)?;
