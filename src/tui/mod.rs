@@ -21,7 +21,7 @@ use self::ui::draw;
 pub fn run(vault_path: &Path) -> Result<()> {
     if !vault_path.exists() {
         anyhow::bail!(
-            "vault not found at {}. Run `credman init` first.",
+            "vault not found at {}. Run `credman init` or `credman restore` first.",
             vault_path.display()
         );
     }

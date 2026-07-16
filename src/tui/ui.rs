@@ -41,8 +41,13 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
     .alignment(ratatui::layout::Alignment::Center);
     f.render_widget(title, chunks[0]);
 
+    let visibility = if app.show_seed { "shown" } else { "hidden" };
     let mut lines = vec![
-        Line::from(format!("Phrase: {}", app.seed_input)),
+        Line::from(format!("Phrase: {}", app.seed_display())),
+        Line::from(format!(
+            "Words: {}/12 · Ctrl+R toggle ({visibility})",
+            app.seed_word_count()
+        )),
         Line::from(""),
         Line::from("Enter to unlock · Ctrl+C / Esc to quit"),
     ];
@@ -157,25 +162,29 @@ fn draw_main(f: &mut Frame, app: &App, area: Rect) {
                 ]),
             ]
         }
-        None => vec![Line::from("No entries")],
+        None => vec![Line::from(
+            app.list_empty_message()
+                .unwrap_or_else(|| "No entry selected".into()),
+        )],
     };
     let detail_widget = Paragraph::new(detail)
         .block(Block::default().borders(Borders::ALL).title(" Detail "))
         .wrap(Wrap { trim: false });
     f.render_widget(detail_widget, body[1]);
 
-    let status = Paragraph::new(app.status.as_str());
+    let status = Paragraph::new(app.status_line());
     f.render_widget(status, chunks[1]);
 
     if app.screen == Screen::ConfirmDelete {
-        draw_confirm(f, area);
+        draw_confirm(f, app, area);
     }
 }
 
-fn draw_confirm(f: &mut Frame, area: Rect) {
+fn draw_confirm(f: &mut Frame, app: &App, area: Rect) {
     let popup = centered_rect(40, 5, area);
     f.render_widget(Clear, popup);
-    let p = Paragraph::new("Delete selected entry?\n\n[y] yes   [n] no")
+    let name = app.delete_target_name().unwrap_or("selected entry");
+    let p = Paragraph::new(format!("Delete '{name}'?\n\n[y] yes   [n] no"))
         .block(Block::default().borders(Borders::ALL).title(" Confirm "))
         .alignment(ratatui::layout::Alignment::Center);
     f.render_widget(p, popup);
@@ -198,11 +207,7 @@ fn draw_form_modal(f: &mut Frame, app: &App, area: Rect) {
             Style::default()
         }
     };
-    let pw_display = if app.form.field == InputField::Password {
-        app.form.password.clone()
-    } else {
-        "*".repeat(app.form.password.len())
-    };
+    let pw_display = app.form_password_display();
     let lines = vec![
         Line::from(Span::styled(
             format!("Name:     {}", app.form.name),

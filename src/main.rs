@@ -1,7 +1,9 @@
 mod cli;
+mod clipboard;
 mod crypto;
 mod model;
 mod tui;
+mod validation;
 mod vault;
 
 fn main() {

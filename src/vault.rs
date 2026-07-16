@@ -1,7 +1,11 @@
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+use fs2::FileExt;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
@@ -10,6 +14,9 @@ use crate::crypto::{
     ARGON2_P_COST, ARGON2_T_COST, NONCE_LEN, SALT_LEN,
 };
 use crate::model::VaultData;
+use crate::validation::{
+    validate_plaintext_size, validate_vault, validate_vault_file_size, ValidationError,
+};
 
 const MAGIC: &[u8; 8] = b"CREDMAN\0";
 const FORMAT_VERSION: u32 = 1;
@@ -20,6 +27,8 @@ pub enum VaultError {
     AlreadyExists(PathBuf),
     #[error("vault not found at {0}")]
     NotFound(PathBuf),
+    #[error("vault is in use by another credman process: {0}")]
+    InUse(PathBuf),
     #[error("invalid vault file: {0}")]
     Invalid(String),
     #[error(transparent)]
@@ -28,6 +37,8 @@ pub enum VaultError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Validation(#[from] ValidationError),
 }
 
 /// On-disk header layout (little-endian):
@@ -52,10 +63,68 @@ impl VaultFile {
 }
 
 fn dirs_fallback_home() -> PathBuf {
-    if let Ok(h) = std::env::var("HOME") {
-        return PathBuf::from(h);
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn ensure_secure_parent(path: &Path) -> Result<(), VaultError> {
+    let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+    #[cfg(unix)]
+    let created = !parent.exists();
+    fs::create_dir_all(parent)?;
+    #[cfg(unix)]
+    if created || is_default_vault_path(path) {
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     }
-    PathBuf::from(".")
+    Ok(())
+}
+
+#[cfg(unix)]
+fn is_default_vault_path(path: &Path) -> bool {
+    dirs::home_dir().is_some_and(|home| path == home.join(".credman").join("vault"))
+}
+
+fn harden_file_permissions(_path: &Path) -> Result<(), VaultError> {
+    #[cfg(unix)]
+    fs::set_permissions(_path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+struct VaultLock {
+    file: File,
+}
+
+fn lock_path_for(vault_path: &Path) -> PathBuf {
+    let mut path = vault_path.as_os_str().to_os_string();
+    path.push(".lock");
+    PathBuf::from(path)
+}
+
+impl VaultLock {
+    fn acquire(vault_path: &Path) -> Result<Self, VaultError> {
+        ensure_secure_parent(vault_path)?;
+        let lock_path = lock_path_for(vault_path);
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let file = options.open(&lock_path)?;
+        harden_file_permissions(&lock_path)?;
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(Self { file }),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(VaultError::InUse(vault_path.to_path_buf()))
+            }
+            Err(error) => Err(VaultError::Io(error)),
+        }
+    }
+}
+
+impl Drop for VaultLock {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.file);
+    }
 }
 
 fn read_u32(buf: &[u8], off: &mut usize) -> Result<u32, VaultError> {
@@ -81,6 +150,9 @@ impl VaultFile {
         if !path.exists() {
             return Err(VaultError::NotFound(path.to_path_buf()));
         }
+        ensure_secure_parent(path)?;
+        harden_file_permissions(path)?;
+        validate_vault_file_size(fs::metadata(path)?.len())?;
         let mut f = File::open(path)?;
         let mut buf = Vec::new();
         f.read_to_end(&mut buf)?;
@@ -104,7 +176,9 @@ impl VaultFile {
         let mut nonce = [0u8; NONCE_LEN];
         nonce.copy_from_slice(&buf[off..off + NONCE_LEN]);
         off += NONCE_LEN;
-        let ct_len = read_u64(&buf, &mut off)? as usize;
+        let ct_len_raw = read_u64(&buf, &mut off)?;
+        validate_vault_file_size(ct_len_raw)?;
+        let ct_len = ct_len_raw as usize;
         if off + ct_len != buf.len() {
             return Err(VaultError::Invalid("ciphertext length mismatch".into()));
         }
@@ -135,13 +209,16 @@ impl VaultFile {
     }
 
     pub fn save(&self) -> Result<(), VaultError> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        ensure_secure_parent(&self.path)?;
         let data = self.serialize();
         let tmp = self.path.with_extension("tmp");
         {
-            let mut f = File::create(&tmp)?;
+            let mut options = OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            options.mode(0o600);
+            let mut f = options.open(&tmp)?;
+            harden_file_permissions(&tmp)?;
             f.write_all(&data)?;
             f.sync_all()?;
         }
@@ -155,16 +232,28 @@ pub struct UnlockedVault {
     pub key: VaultKey,
     pub salt: [u8; SALT_LEN],
     pub data: VaultData,
+    _lock: VaultLock,
 }
 
 impl UnlockedVault {
     pub fn create(path: &Path, mnemonic: &str) -> Result<Self, VaultError> {
+        let lock = VaultLock::acquire(path)?;
+        Self::create_with_lock(path, mnemonic, lock)
+    }
+
+    pub fn replace(path: &Path, mnemonic: &str) -> Result<Self, VaultError> {
+        let lock = VaultLock::acquire(path)?;
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Self::create_with_lock(path, mnemonic, lock)
+    }
+
+    fn create_with_lock(path: &Path, mnemonic: &str, lock: VaultLock) -> Result<Self, VaultError> {
         if path.exists() {
             return Err(VaultError::AlreadyExists(path.to_path_buf()));
         }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        ensure_secure_parent(path)?;
         let salt = random_salt();
         let key = derive_key(mnemonic, &salt)?;
         let data = VaultData::new();
@@ -173,29 +262,36 @@ impl UnlockedVault {
             key,
             salt,
             data,
+            _lock: lock,
         };
         vault.persist()?;
         Ok(vault)
     }
 
     pub fn unlock(path: &Path, mnemonic: &str) -> Result<Self, VaultError> {
+        let lock = VaultLock::acquire(path)?;
         let file = VaultFile::load(path)?;
         // Header stores Argon2 params for future flexibility; v1 always uses compile-time defaults
         // matching what we write. Derive with stored salt.
         let _ = (file.m_kib, file.t_cost, file.p_cost);
         let key = derive_key(mnemonic, &file.salt)?;
         let plaintext = Zeroizing::new(decrypt(&key, &file.nonce, &file.ciphertext)?);
+        validate_plaintext_size(plaintext.len())?;
         let data: VaultData = serde_json::from_slice(&plaintext)?;
+        validate_vault(&data)?;
         Ok(Self {
             path: path.to_path_buf(),
             key,
             salt: file.salt,
             data,
+            _lock: lock,
         })
     }
 
     pub fn persist(&mut self) -> Result<(), VaultError> {
+        validate_vault(&self.data)?;
         let plaintext = Zeroizing::new(serde_json::to_vec(&self.data)?);
+        validate_plaintext_size(plaintext.len())?;
         let nonce = random_nonce();
         let ciphertext = encrypt(&self.key, &nonce, &plaintext)?;
         let file = VaultFile {
@@ -253,5 +349,110 @@ mod tests {
         let other = generate_mnemonic().unwrap();
         UnlockedVault::create(&path, &phrase).unwrap();
         assert!(UnlockedVault::unlock(&path, &other).is_err());
+    }
+
+    #[test]
+    fn vault_lock_fails_fast_and_releases_on_drop() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault");
+
+        let first = VaultLock::acquire(&path).unwrap();
+        assert!(matches!(
+            VaultLock::acquire(&path),
+            Err(VaultError::InUse(locked_path)) if locked_path == path
+        ));
+
+        drop(first);
+        VaultLock::acquire(&path).unwrap();
+    }
+
+    #[test]
+    fn lock_path_appends_without_replacing_vault_extension() {
+        assert_eq!(
+            lock_path_for(Path::new("credentials.prod")),
+            PathBuf::from("credentials.prod.lock")
+        );
+    }
+
+    #[test]
+    fn oversized_vault_file_is_rejected_before_reading() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault");
+        let file = File::create(&path).unwrap();
+        file.set_len(crate::validation::MAX_VAULT_FILE_BYTES + 1)
+            .unwrap();
+
+        assert!(matches!(
+            VaultFile::load(&path),
+            Err(VaultError::Validation(
+                ValidationError::VaultFileTooLarge { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn persist_rejects_invalid_entry() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault");
+        let phrase = generate_mnemonic().unwrap();
+        let mut vault = UnlockedVault::create(&path, &phrase).unwrap();
+        vault.data.entries.push(Entry {
+            id: Uuid::new_v4(),
+            name: String::new(),
+            username: String::new(),
+            password: String::new(),
+            url: String::new(),
+            notes: String::new(),
+            tags: Vec::new(),
+            updated_at: Utc::now(),
+        });
+
+        assert!(matches!(
+            vault.persist(),
+            Err(VaultError::Validation(ValidationError::Required {
+                field: "name"
+            }))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn vault_directory_and_file_use_private_permissions() {
+        let dir = tempdir().unwrap();
+        let vault_dir = dir.path().join(".credman");
+        let path = vault_dir.join("vault");
+        let phrase = generate_mnemonic().unwrap();
+
+        UnlockedVault::create(&path, &phrase).unwrap();
+
+        assert_eq!(
+            fs::metadata(&vault_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(lock_path_for(&path))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+
+        fs::set_permissions(&vault_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        VaultFile::load(&path).unwrap();
+
+        assert_eq!(
+            fs::metadata(&vault_dir).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }

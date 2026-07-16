@@ -1,10 +1,11 @@
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::app::{App, Screen};
 
 /// Returns true when the app should quit.
 pub fn handle_event(app: &mut App) -> Result<bool> {
+    app.tick_clipboard();
     if !event::poll(std::time::Duration::from_millis(200))? {
         return Ok(false);
     }
@@ -21,7 +22,7 @@ pub fn handle_event(app: &mut App) -> Result<bool> {
     }
 
     match app.screen {
-        Screen::Unlock => handle_unlock(app, key.code),
+        Screen::Unlock => handle_unlock(app, key),
         Screen::Main => handle_main(app, key.code),
         Screen::Add | Screen::Edit => handle_form(app, key.code),
         Screen::ConfirmDelete => handle_confirm(app, key.code),
@@ -30,17 +31,22 @@ pub fn handle_event(app: &mut App) -> Result<bool> {
     Ok(app.screen == Screen::Quit)
 }
 
-fn handle_unlock(app: &mut App, code: KeyCode) {
-    match code {
+fn handle_unlock(app: &mut App, key: KeyEvent) {
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
+        app.show_seed = !app.show_seed;
+        return;
+    }
+
+    match key.code {
         KeyCode::Esc => app.screen = Screen::Quit,
         KeyCode::Enter => app.try_unlock(),
         KeyCode::Backspace => {
             app.seed_input.pop();
+            app.unlock_error = None;
         }
-        KeyCode::Char(c) => {
-            if !c.is_control() {
-                app.seed_input.push(c);
-            }
+        KeyCode::Char(c) if !c.is_control() => {
+            app.seed_input.push(c);
+            app.unlock_error = None;
         }
         _ => {}
     }
@@ -108,7 +114,7 @@ fn handle_form(app: &mut App, code: KeyCode) {
             app.active_form_value_mut().pop();
         }
         KeyCode::Char(c) if !c.is_control() => {
-            app.active_form_value_mut().push(c);
+            app.push_form_char(c);
         }
         _ => {}
     }
