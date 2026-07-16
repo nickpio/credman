@@ -50,6 +50,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, vault_path: &P
 
     loop {
         terminal.draw(|f| draw(f, &app))?;
+        if app.unlocking {
+            // Frame is already flushed by draw; now the blocking KDF can run.
+            app.finish_unlock();
+            continue;
+        }
         if handle_event(&mut app)? {
             break;
         }

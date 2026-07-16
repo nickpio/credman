@@ -32,6 +32,9 @@ pub fn handle_event(app: &mut App) -> Result<bool> {
 }
 
 fn handle_unlock(app: &mut App, key: KeyEvent) {
+    if app.unlocking {
+        return;
+    }
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
         app.show_seed = !app.show_seed;
         return;
@@ -39,7 +42,7 @@ fn handle_unlock(app: &mut App, key: KeyEvent) {
 
     match key.code {
         KeyCode::Esc => app.screen = Screen::Quit,
-        KeyCode::Enter => app.try_unlock(),
+        KeyCode::Enter => app.start_unlock(),
         KeyCode::Backspace => {
             app.seed_input.pop();
             app.unlock_error = None;
@@ -59,11 +62,11 @@ fn handle_main(app: &mut App, code: KeyCode) {
                 app.filtering = false;
                 app.filter.clear();
                 app.recompute_filter();
-                app.status = "Filter cleared".into();
+                app.info("Filter cleared");
             }
             KeyCode::Enter => {
                 app.filtering = false;
-                app.status = format!("Filter: {}", app.filter);
+                app.info(format!("Filter: {}", app.filter));
             }
             KeyCode::Backspace => {
                 app.filter.pop();
@@ -82,7 +85,7 @@ fn handle_main(app: &mut App, code: KeyCode) {
         KeyCode::Char('q') | KeyCode::Esc => app.screen = Screen::Quit,
         KeyCode::Char('/') => {
             app.filtering = true;
-            app.status = "Type to filter, Enter done, Esc clear".into();
+            app.info("Type to filter, Enter done, Esc clear");
         }
         KeyCode::Char('j') | KeyCode::Down => app.move_selection(1),
         KeyCode::Char('k') | KeyCode::Up => app.move_selection(-1),
@@ -101,7 +104,7 @@ fn handle_form(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => {
             app.screen = Screen::Main;
-            app.status = "Cancelled".into();
+            app.info("Cancelled");
         }
         KeyCode::Enter => app.save_form(),
         KeyCode::Tab | KeyCode::Down => {

@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
-use super::app::{App, InputField, Screen};
+use super::app::{App, InputField, Screen, StatusKind};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -19,12 +19,20 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
+fn status_style(kind: StatusKind) -> Style {
+    match kind {
+        StatusKind::Info => Style::default().fg(Color::DarkGray),
+        StatusKind::Success => Style::default().fg(Color::Green),
+        StatusKind::Error => Style::default().fg(Color::Red),
+    }
+}
+
 fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Percentage(35),
-            Constraint::Length(7),
+            Constraint::Length(8),
             Constraint::Min(1),
         ])
         .split(area);
@@ -41,22 +49,37 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
     .alignment(ratatui::layout::Alignment::Center);
     f.render_widget(title, chunks[0]);
 
-    let visibility = if app.show_seed { "shown" } else { "hidden" };
-    let mut lines = vec![
-        Line::from(format!("Phrase: {}", app.seed_display())),
-        Line::from(format!(
-            "Words: {}/12 · Ctrl+R toggle ({visibility})",
-            app.seed_word_count()
-        )),
-        Line::from(""),
-        Line::from("Enter to unlock · Ctrl+C / Esc to quit"),
-    ];
-    if let Some(err) = &app.unlock_error {
-        lines.push(Line::from(Span::styled(
-            err.clone(),
-            Style::default().fg(Color::Red),
-        )));
-    }
+    let lines = if app.unlocking {
+        vec![
+            Line::from(Span::styled(
+                "Unlocking…",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("Deriving key — please wait"),
+        ]
+    } else {
+        let visibility = if app.show_seed { "shown" } else { "hidden" };
+        let mut lines = vec![
+            Line::from(format!("Phrase: {}", app.seed_display())),
+            Line::from(format!(
+                "Words: {}/12 · Ctrl+R toggle ({visibility})",
+                app.seed_word_count()
+            )),
+            Line::from(""),
+            Line::from("Enter to unlock · Ctrl+C / Esc to quit"),
+        ];
+        if let Some(err) = &app.unlock_error {
+            lines.push(Line::from(Span::styled(
+                err.clone(),
+                Style::default().fg(Color::Red),
+            )));
+        }
+        lines
+    };
+
     let box_w = chunks[1].width.min(80);
     let box_x = chunks[1].x + (chunks[1].width.saturating_sub(box_w)) / 2;
     let unlock_area = Rect::new(box_x, chunks[1].y, box_w, chunks[1].height);
@@ -65,8 +88,7 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
         .alignment(ratatui::layout::Alignment::Left);
     f.render_widget(block, unlock_area);
 
-    let status = Paragraph::new(app.status.as_str())
-        .style(Style::default().fg(Color::DarkGray));
+    let status = Paragraph::new(app.status.as_str()).style(status_style(app.status_kind));
     f.render_widget(status, chunks[2]);
 }
 
@@ -172,7 +194,7 @@ fn draw_main(f: &mut Frame, app: &App, area: Rect) {
         .wrap(Wrap { trim: false });
     f.render_widget(detail_widget, body[1]);
 
-    let status = Paragraph::new(app.status_line());
+    let status = Paragraph::new(app.status_line()).style(status_style(app.status_kind));
     f.render_widget(status, chunks[1]);
 
     if app.screen == Screen::ConfirmDelete {

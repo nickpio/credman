@@ -7,13 +7,13 @@ use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::clipboard::{ClearOutcome, PendingClipboard};
-use crate::crypto::normalize_mnemonic;
+use crate::crypto::{normalize_mnemonic, validate_mnemonic, CryptoError};
 use crate::model::Entry;
 use crate::validation::{
     validate_entry, validate_vault, MAX_NAME_CHARS, MAX_NOTES_CHARS, MAX_PASSWORD_CHARS,
     MAX_TAG_INPUT_CHARS, MAX_URL_CHARS, MAX_USERNAME_CHARS,
 };
-use crate::vault::UnlockedVault;
+use crate::vault::{UnlockedVault, VaultError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -23,6 +23,14 @@ pub enum Screen {
     Edit,
     ConfirmDelete,
     Quit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StatusKind {
+    #[default]
+    Info,
+    Success,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -78,12 +86,15 @@ pub struct App {
     pub seed_input: String,
     pub show_seed: bool,
     pub unlock_error: Option<String>,
+    /// Set by Enter; main loop draws "Unlocking…" then calls `finish_unlock`.
+    pub unlocking: bool,
     pub vault: Option<UnlockedVault>,
     pub filter: String,
     pub filtering: bool,
     pub selected: usize,
     pub show_password: bool,
     pub status: String,
+    pub status_kind: StatusKind,
     pub form: FormState,
     pub filtered_indices: Vec<usize>,
     delete_target: Option<Uuid>,
@@ -98,17 +109,36 @@ impl App {
             seed_input: String::new(),
             show_seed: false,
             unlock_error: None,
+            unlocking: false,
             vault: None,
             filter: String::new(),
             filtering: false,
             selected: 0,
             show_password: false,
             status: "Enter seed phrase and press Enter".into(),
+            status_kind: StatusKind::Info,
             form: FormState::default(),
             filtered_indices: Vec::new(),
             delete_target: None,
             clipboard_copy: None,
         }
+    }
+
+    pub fn set_status(&mut self, msg: impl Into<String>, kind: StatusKind) {
+        self.status = msg.into();
+        self.status_kind = kind;
+    }
+
+    pub fn info(&mut self, msg: impl Into<String>) {
+        self.set_status(msg, StatusKind::Info);
+    }
+
+    pub fn success(&mut self, msg: impl Into<String>) {
+        self.set_status(msg, StatusKind::Success);
+    }
+
+    pub fn error_status(&mut self, msg: impl Into<String>) {
+        self.set_status(msg, StatusKind::Error);
     }
 
     pub fn recompute_filter(&mut self) {
@@ -169,7 +199,25 @@ impl App {
         }
     }
 
-    pub fn try_unlock(&mut self) {
+    /// Validate the phrase and queue unlock so the UI can show a busy state first.
+    pub fn start_unlock(&mut self) {
+        if self.unlocking {
+            return;
+        }
+        let phrase = normalize_mnemonic(&self.seed_input);
+        if let Err(e) = validate_mnemonic(&phrase) {
+            self.unlock_error = Some(format_crypto_error(&e));
+            self.show_seed = false;
+            self.info("Fix the phrase and press Enter");
+            return;
+        }
+        self.unlock_error = None;
+        self.unlocking = true;
+        self.info("Unlocking…");
+    }
+
+    /// Run after a redraw with `unlocking == true`.
+    pub fn finish_unlock(&mut self) {
         let phrase = Zeroizing::new(normalize_mnemonic(&self.seed_input));
         match UnlockedVault::unlock(&self.path, &phrase) {
             Ok(vault) => {
@@ -177,14 +225,22 @@ impl App {
                 self.seed_input.zeroize();
                 self.show_seed = false;
                 self.unlock_error = None;
+                self.unlocking = false;
                 self.screen = Screen::Main;
-                self.status = "Unlocked. / filter  a add  e edit  d delete  c copy  r reveal  q quit"
-                    .into();
+                self.success(
+                    "Unlocked. / filter  a add  e edit  d delete  c copy  r reveal  q quit",
+                );
                 self.recompute_filter();
             }
-            Err(error) => {
-                self.unlock_error = Some(error.to_string());
+            Err(e) => {
+                let (msg, clear_seed) = format_unlock_error(&e);
+                self.unlock_error = Some(msg);
+                if clear_seed {
+                    self.seed_input.zeroize();
+                }
                 self.show_seed = false;
+                self.unlocking = false;
+                self.error_status("Unlock failed");
             }
         }
     }
@@ -205,12 +261,12 @@ impl App {
             ..FormState::default()
         };
         self.screen = Screen::Add;
-        self.status = "Tab next field  Enter save  Esc cancel".into();
+        self.info("Tab next field  Enter save  Esc cancel");
     }
 
     pub fn open_edit(&mut self) {
         let Some(idx) = self.selected_entry_index() else {
-            self.status = "No entry selected".into();
+            self.error_status("No entry selected");
             return;
         };
         let entry = &self.vault.as_ref().unwrap().data.entries[idx];
@@ -225,7 +281,7 @@ impl App {
             edit_id: Some(entry.id),
         };
         self.screen = Screen::Edit;
-        self.status = "Tab next field  Enter save  Esc cancel".into();
+        self.info("Tab next field  Enter save  Esc cancel");
     }
 
     pub fn save_form(&mut self) {
@@ -247,7 +303,7 @@ impl App {
             updated_at: Utc::now(),
         };
         if let Err(error) = validate_entry(&entry) {
-            self.status = error.to_string();
+            self.error_status(error.to_string());
             return;
         }
 
@@ -265,21 +321,22 @@ impl App {
             next_data.entries.push(entry);
         }
         if let Err(error) = validate_vault(&next_data) {
-            self.status = error.to_string();
+            self.error_status(error.to_string());
             return;
         }
 
         let previous_data = std::mem::replace(&mut vault.data, next_data);
+        let editing = self.form.edit_id.is_some();
         if let Err(error) = vault.persist() {
             vault.data = previous_data;
-            self.status = format!("Save failed: {error}");
+            self.error_status(format!("Save failed: {error}"));
             return;
         }
-        self.status = if self.form.edit_id.is_some() {
-            "Entry updated".into()
+        if editing {
+            self.success("Entry updated");
         } else {
-            "Entry added".into()
-        };
+            self.success("Entry added");
+        }
         self.form = FormState::default();
         self.screen = Screen::Main;
         self.recompute_filter();
@@ -287,7 +344,7 @@ impl App {
 
     pub fn request_delete(&mut self) {
         let Some(index) = self.selected_entry_index() else {
-            self.status = "No entry selected".into();
+            self.error_status("No entry selected");
             return;
         };
         let (id, name) = {
@@ -296,7 +353,7 @@ impl App {
         };
         self.delete_target = Some(id);
         self.screen = Screen::ConfirmDelete;
-        self.status = format!("Delete '{name}'? y/n");
+        self.info(format!("Delete '{name}'? y/n"));
     }
 
     pub fn confirm_delete(&mut self, yes: bool) {
@@ -307,14 +364,14 @@ impl App {
                     let name = vault.data.entries[index].name.clone();
                     vault.data.entries.remove(index);
                     if let Err(e) = vault.persist() {
-                        self.status = format!("Save failed: {e}");
+                        self.error_status(format!("Save failed: {e}"));
                     } else {
-                        self.status = format!("Deleted '{name}'");
+                        self.success(format!("Deleted '{name}'"));
                     }
                 }
             }
         } else {
-            self.status = "Delete cancelled".into();
+            self.info("Delete cancelled");
         }
         self.delete_target = None;
         self.screen = Screen::Main;
@@ -334,7 +391,7 @@ impl App {
 
     pub fn copy_password(&mut self) {
         let Some(idx) = self.selected_entry_index() else {
-            self.status = "No entry selected".into();
+            self.error_status("No entry selected");
             return;
         };
         let password = self.vault.as_ref().unwrap().data.entries[idx]
@@ -343,9 +400,9 @@ impl App {
         match PendingClipboard::copy(&password) {
             Ok(copy) => {
                 self.clipboard_copy = Some(copy);
-                self.status = "Password copied".into();
+                self.success("Password copied");
             }
-            Err(e) => self.status = format!("Clipboard error: {e}"),
+            Err(e) => self.error_status(format!("Clipboard error: {e}")),
         }
     }
 
@@ -359,11 +416,11 @@ impl App {
         }
 
         let copy = self.clipboard_copy.take().unwrap();
-        self.status = match copy.clear_if_unchanged() {
-            Ok(ClearOutcome::Cleared) => "Clipboard cleared".into(),
-            Ok(ClearOutcome::Changed) => "Clipboard changed; clear skipped".into(),
-            Err(error) => format!("Clipboard clear failed: {error}"),
-        };
+        match copy.clear_if_unchanged() {
+            Ok(ClearOutcome::Cleared) => self.info("Clipboard cleared"),
+            Ok(ClearOutcome::Changed) => self.info("Clipboard changed; clear skipped"),
+            Err(error) => self.error_status(format!("Clipboard clear failed: {error}")),
+        }
     }
 
     pub fn status_line(&self) -> String {
@@ -409,7 +466,7 @@ impl App {
             InputField::Tags => ("Tags", MAX_TAG_INPUT_CHARS),
         };
         if self.active_form_value_mut().chars().count() >= max {
-            self.status = format!("{field} is limited to {max} characters");
+            self.error_status(format!("{field} is limited to {max} characters"));
             return;
         }
         self.active_form_value_mut().push(character);
@@ -433,6 +490,34 @@ impl Drop for App {
         if let Some(copy) = self.clipboard_copy.take() {
             let _ = copy.clear_if_unchanged();
         }
+    }
+}
+
+fn format_crypto_error(err: &CryptoError) -> String {
+    match err {
+        CryptoError::InvalidMnemonic(detail) => format!("Invalid seed phrase: {detail}"),
+        other => other.to_string(),
+    }
+}
+
+/// Returns (message, clear_seed). Clear seed only when the phrase itself was wrong.
+fn format_unlock_error(err: &VaultError) -> (String, bool) {
+    match err {
+        VaultError::Crypto(CryptoError::Decrypt) => ("Wrong seed phrase".into(), true),
+        VaultError::Crypto(CryptoError::InvalidMnemonic(detail)) => {
+            (format!("Invalid seed phrase: {detail}"), false)
+        }
+        VaultError::Crypto(other) => (other.to_string(), false),
+        VaultError::Invalid(reason) => (format!("Corrupted vault: {reason}"), false),
+        VaultError::Json(_) => ("Corrupted vault: invalid data".into(), false),
+        VaultError::NotFound(path) => (
+            format!(
+                "Vault not found at {}. Run `credman init` or `credman restore` first.",
+                path.display()
+            ),
+            false,
+        ),
+        other => (other.to_string(), false),
     }
 }
 
@@ -485,10 +570,11 @@ mod tests {
         app.seed_input = "one two three".into();
         app.show_seed = true;
 
-        app.try_unlock();
+        app.start_unlock();
 
         assert_eq!(app.seed_input, "one two three");
         assert!(!app.show_seed);
+        assert!(!app.unlocking);
         assert!(app.unlock_error.is_some());
     }
 
