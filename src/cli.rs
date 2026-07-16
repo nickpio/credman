@@ -12,7 +12,7 @@ use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::clipboard::{self, HelperSchedule};
-use crate::crypto::{generate_mnemonic, normalize_mnemonic, validate_mnemonic};
+use crate::crypto::{generate_mnemonic, normalize_mnemonic, seed_fingerprint, validate_mnemonic};
 use crate::model::Entry;
 use crate::tui;
 use crate::validation::{validate_entry, validate_generated_password_length};
@@ -24,6 +24,10 @@ pub struct Cli {
     /// Path to vault file (default: ~/.credman/vault or $CREDMAN_VAULT)
     #[arg(long, global = true, env = "CREDMAN_VAULT")]
     pub vault: Option<PathBuf>,
+
+    /// Seed phrase for non-interactive use (INSECURE: may appear in shell history / process lists)
+    #[arg(long, global = true)]
+    pub seed: Option<String>,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -39,6 +43,11 @@ pub enum Commands {
     },
     /// Show vault path and whether it exists (no unlock)
     Status,
+    /// Copy the encrypted vault to a timestamped file in DIR (no unlock)
+    Backup {
+        /// Directory to write the backup into (created if missing)
+        dir: PathBuf,
+    },
     /// Unlock an existing vault file, or create one from an existing seed
     Restore {
         /// Overwrite existing vault with a new empty vault (dangerous)
@@ -82,27 +91,37 @@ pub enum Commands {
 }
 
 pub fn run() -> Result<()> {
-    let cli = Cli::parse();
-    let vault_path = cli.vault.unwrap_or_else(VaultFile::default_path);
+    let mut cli = Cli::parse();
+    let vault_path = cli.vault.take().unwrap_or_else(VaultFile::default_path);
+    let mut seed = cli.seed.take().map(Zeroizing::new);
+    let seed_ref = seed.as_ref().map(|s| s.as_str());
 
-    match cli.command {
+    let result = match cli.command {
         None | Some(Commands::Tui) => tui::run(&vault_path),
-        Some(Commands::Init { force }) => cmd_init(&vault_path, force),
+        Some(Commands::Init { force }) => cmd_init(&vault_path, force, seed_ref),
         Some(Commands::Status) => cmd_status(&vault_path),
-        Some(Commands::Restore { force }) => cmd_restore(&vault_path, force),
-        Some(Commands::Add { generate, length }) => cmd_add(&vault_path, generate, length),
+        Some(Commands::Backup { dir }) => cmd_backup(&vault_path, &dir),
+        Some(Commands::Restore { force }) => cmd_restore(&vault_path, force, seed_ref),
+        Some(Commands::Add { generate, length }) => {
+            cmd_add(&vault_path, generate, length, seed_ref)
+        }
         Some(Commands::Get {
             query,
             password_only,
             clipboard,
-        }) => cmd_get(&vault_path, &query, password_only, clipboard),
-        Some(Commands::List { secrets }) => cmd_list(&vault_path, secrets),
-        Some(Commands::Edit { query }) => cmd_edit(&vault_path, &query),
-        Some(Commands::Rm { query, yes }) => cmd_rm(&vault_path, &query, yes),
+        }) => cmd_get(&vault_path, &query, password_only, clipboard, seed_ref),
+        Some(Commands::List { secrets }) => cmd_list(&vault_path, secrets, seed_ref),
+        Some(Commands::Edit { query }) => cmd_edit(&vault_path, &query, seed_ref),
+        Some(Commands::Rm { query, yes }) => cmd_rm(&vault_path, &query, yes, seed_ref),
         Some(Commands::ClipboardClear) => {
             clipboard::run_clear_helper().context("clipboard clear helper failed")
         }
+    };
+
+    if let Some(ref mut s) = seed {
+        s.zeroize();
     }
+    result
 }
 
 struct RawModeGuard;
@@ -202,7 +221,16 @@ fn read_seed_interactive() -> Result<String> {
     result
 }
 
-fn prompt_seed() -> Result<Zeroizing<String>> {
+fn prompt_seed(cli_seed: Option<&str>) -> Result<Zeroizing<String>> {
+    if let Some(seed) = cli_seed {
+        eprintln!(
+            "warning: --seed exposes the phrase in shell history and process lists; \
+             prefer interactive entry for anything beyond disposable automation."
+        );
+        let normalized = Zeroizing::new(normalize_mnemonic(seed));
+        validate_mnemonic(&normalized).context("invalid seed phrase")?;
+        return Ok(normalized);
+    }
     let mut phrase = read_seed_interactive()?;
     let normalized = normalize_mnemonic(&phrase);
     phrase.zeroize();
@@ -210,12 +238,34 @@ fn prompt_seed() -> Result<Zeroizing<String>> {
     Ok(Zeroizing::new(normalized))
 }
 
-fn unlock(path: &PathBuf) -> Result<UnlockedVault> {
-    let phrase = prompt_seed()?;
+fn unlock(path: &PathBuf, cli_seed: Option<&str>) -> Result<UnlockedVault> {
+    let phrase = prompt_seed(cli_seed)?;
     UnlockedVault::unlock(path, &phrase).context("failed to unlock vault")
 }
 
-fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
+fn offer_seed_fingerprint(phrase: &str) -> Result<()> {
+    let show = if io::stdin().is_terminal() {
+        Confirm::new()
+            .with_prompt(
+                "Show a seed fingerprint to write down for later verification? (not a secret)",
+            )
+            .default(true)
+            .interact()?
+    } else {
+        // Non-interactive: always print so automation can capture it.
+        true
+    };
+    if !show {
+        return Ok(());
+    }
+    let fp = seed_fingerprint(phrase).context("failed to compute seed fingerprint")?;
+    println!("\nSeed fingerprint: {fp}");
+    println!("Write this next to your offline backup. It is not stored by credman.");
+    println!("Later you can recompute it after unlocking to confirm you have the same seed.");
+    Ok(())
+}
+
+fn cmd_init(path: &PathBuf, force: bool, cli_seed: Option<&str>) -> Result<()> {
     let replace = path.exists();
     if replace {
         if !force {
@@ -252,7 +302,7 @@ fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
     let _ = io::stdout().flush();
 
     println!("Re-enter your seed phrase to confirm you wrote it down correctly.\n");
-    let confirmed = prompt_seed()?;
+    let confirmed = prompt_seed(cli_seed)?;
     if confirmed.as_str() != phrase.as_str() {
         bail!("confirmation did not match; vault not created");
     }
@@ -263,16 +313,17 @@ fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
         UnlockedVault::create(path, &phrase)?;
     }
     println!("Vault created at {}", path.display());
+    offer_seed_fingerprint(&phrase)?;
     Ok(())
 }
 
-fn cmd_restore(path: &PathBuf, force: bool) -> Result<()> {
+fn cmd_restore(path: &PathBuf, force: bool, cli_seed: Option<&str>) -> Result<()> {
     if path.exists() && !force {
         println!(
             "Found vault at {}. Enter your seed phrase to verify access.\n",
             path.display()
         );
-        let phrase = prompt_seed()?;
+        let phrase = prompt_seed(cli_seed)?;
         let vault = UnlockedVault::unlock(path, &phrase).context("failed to unlock vault")?;
         println!(
             "Vault verified at {} ({} entries).",
@@ -280,6 +331,7 @@ fn cmd_restore(path: &PathBuf, force: bool) -> Result<()> {
             vault.data.entries.len()
         );
         println!("You can use credman normally on this device.");
+        offer_seed_fingerprint(&phrase)?;
         return Ok(());
     }
 
@@ -303,11 +355,13 @@ fn cmd_restore(path: &PathBuf, force: bool) -> Result<()> {
         );
     }
 
-    let phrase = prompt_seed()?;
-    println!("\nRe-enter your seed phrase to confirm.\n");
-    let confirmed = prompt_seed()?;
-    if confirmed.as_str() != phrase.as_str() {
-        bail!("confirmation did not match; vault not created");
+    let phrase = prompt_seed(cli_seed)?;
+    if cli_seed.is_none() {
+        println!("\nRe-enter your seed phrase to confirm.\n");
+        let confirmed = prompt_seed(None)?;
+        if confirmed.as_str() != phrase.as_str() {
+            bail!("confirmation did not match; vault not created");
+        }
     }
 
     if path.exists() {
@@ -316,6 +370,7 @@ fn cmd_restore(path: &PathBuf, force: bool) -> Result<()> {
         UnlockedVault::create(path, &phrase)?;
     }
     println!("Vault created at {}", path.display());
+    offer_seed_fingerprint(&phrase)?;
     Ok(())
 }
 
@@ -335,6 +390,18 @@ fn cmd_status(path: &PathBuf) -> Result<()> {
         println!("status: missing");
         println!("hint:   run `credman init` (new) or `credman restore` (existing seed)");
     }
+    Ok(())
+}
+
+fn cmd_backup(vault_path: &PathBuf, dir: &PathBuf) -> Result<()> {
+    let dest = VaultFile::backup(vault_path, dir).with_context(|| {
+        format!(
+            "failed to back up vault at {} to {}",
+            vault_path.display(),
+            dir.display()
+        )
+    })?;
+    println!("Backup written to {}", dest.display());
     Ok(())
 }
 
@@ -385,11 +452,11 @@ fn offer_generated_password(password: &str, entry_id: Uuid) -> Result<()> {
     Ok(())
 }
 
-fn cmd_add(path: &PathBuf, generate: bool, length: usize) -> Result<()> {
+fn cmd_add(path: &PathBuf, generate: bool, length: usize, cli_seed: Option<&str>) -> Result<()> {
     if generate {
         validate_generated_password_length(length)?;
     }
-    let mut vault = unlock(path)?;
+    let mut vault = unlock(path, cli_seed)?;
     let name: String = Input::new().with_prompt("Name").interact_text()?;
     let username: String = Input::new()
         .with_prompt("Username")
@@ -452,8 +519,14 @@ fn cmd_add(path: &PathBuf, generate: bool, length: usize) -> Result<()> {
     Ok(())
 }
 
-fn cmd_get(path: &PathBuf, query: &str, password_only: bool, clipboard: bool) -> Result<()> {
-    let vault = unlock(path)?;
+fn cmd_get(
+    path: &PathBuf,
+    query: &str,
+    password_only: bool,
+    clipboard: bool,
+    cli_seed: Option<&str>,
+) -> Result<()> {
+    let vault = unlock(path, cli_seed)?;
     let entry = vault.data.find(query)?;
 
     if clipboard {
@@ -485,8 +558,8 @@ fn cmd_get(path: &PathBuf, query: &str, password_only: bool, clipboard: bool) ->
     Ok(())
 }
 
-fn cmd_list(path: &PathBuf, secrets: bool) -> Result<()> {
-    let vault = unlock(path)?;
+fn cmd_list(path: &PathBuf, secrets: bool, cli_seed: Option<&str>) -> Result<()> {
+    let vault = unlock(path, cli_seed)?;
     if vault.data.entries.is_empty() {
         println!("(empty vault)");
         return Ok(());
@@ -514,8 +587,8 @@ fn cmd_list(path: &PathBuf, secrets: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_edit(path: &PathBuf, query: &str) -> Result<()> {
-    let mut vault = unlock(path)?;
+fn cmd_edit(path: &PathBuf, query: &str, cli_seed: Option<&str>) -> Result<()> {
+    let mut vault = unlock(path, cli_seed)?;
     let entry = vault.data.find_mut(query)?;
 
     let name: String = Input::new()
@@ -568,8 +641,8 @@ fn cmd_edit(path: &PathBuf, query: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_rm(path: &PathBuf, query: &str, yes: bool) -> Result<()> {
-    let mut vault = unlock(path)?;
+fn cmd_rm(path: &PathBuf, query: &str, yes: bool, cli_seed: Option<&str>) -> Result<()> {
+    let mut vault = unlock(path, cli_seed)?;
     let entry = vault.data.find(query)?;
     let id = entry.id;
     let name = entry.name.clone();

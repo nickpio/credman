@@ -225,6 +225,31 @@ impl VaultFile {
         fs::rename(&tmp, &self.path)?;
         Ok(())
     }
+
+    /// Copy the encrypted vault file into `dest_dir` as a timestamped backup.
+    /// Does not unlock or modify the source vault.
+    pub fn backup(source: &Path, dest_dir: &Path) -> Result<PathBuf, VaultError> {
+        if !source.exists() {
+            return Err(VaultError::NotFound(source.to_path_buf()));
+        }
+        fs::create_dir_all(dest_dir)?;
+        let dest = unique_backup_path(dest_dir, chrono::Utc::now());
+        fs::copy(source, &dest)?;
+        harden_file_permissions(&dest)?;
+        Ok(dest)
+    }
+}
+
+fn unique_backup_path(dest_dir: &Path, now: chrono::DateTime<chrono::Utc>) -> PathBuf {
+    let base = dest_dir.join(format!("vault-{}", now.format("%Y%m%dT%H%M%SZ")));
+    if !base.exists() {
+        return base;
+    }
+    dest_dir.join(format!(
+        "vault-{}-{:03}",
+        now.format("%Y%m%dT%H%M%S"),
+        now.timestamp_subsec_millis()
+    ))
 }
 
 pub struct UnlockedVault {
@@ -514,5 +539,45 @@ mod tests {
         let unlocked = UnlockedVault::unlock(&path, &other).unwrap();
         assert!(unlocked.data.entries.is_empty());
         assert!(UnlockedVault::unlock(&path, &phrase).is_err());
+    }
+
+    #[test]
+    fn backup_copies_vault_to_timestamped_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault");
+        let backup_dir = dir.path().join("backups");
+        let phrase = generate_mnemonic().unwrap();
+        UnlockedVault::create(&path, &phrase).unwrap();
+        let original = fs::read(&path).unwrap();
+
+        let dest = VaultFile::backup(&path, &backup_dir).unwrap();
+
+        assert!(dest.starts_with(&backup_dir));
+        assert!(dest
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("vault-"));
+        assert_eq!(fs::read(&dest).unwrap(), original);
+        assert_eq!(fs::read(&path).unwrap(), original);
+
+        #[cfg(unix)]
+        assert_eq!(
+            fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn backup_missing_vault_returns_not_found() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("missing");
+        let backup_dir = dir.path().join("backups");
+        match VaultFile::backup(&path, &backup_dir) {
+            Err(VaultError::NotFound(p)) => assert_eq!(p, path),
+            Err(e) => panic!("expected NotFound, got {e}"),
+            Ok(_) => panic!("expected NotFound, got Ok"),
+        }
     }
 }

@@ -51,6 +51,10 @@ Advisory lock guarantees depend on the filesystem. A local filesystem is recomme
 
 Unlock prompts mask each seed word and show progress toward 12 words. `Ctrl+R` temporarily reveals or hides the phrase. The TUI preserves failed input for correction but returns it to the masked state. Seed buffers are zeroized after successful use and when the TUI exits.
 
+After `init` / `restore` confirmation you may optionally write down a **seed fingerprint** (first 4 hex characters of SHA-256 over the normalized phrase). This is advisory only — credman never stores the seed or the fingerprint. It helps you later check that you still have the same phrase without comparing all 12 words from memory.
+
+`--seed <phrase>` is available for scripting. It may appear in shell history and process listings; prefer interactive entry for real secrets.
+
 Initialization must display the generated seed once. Terminal emulators, screen sharing, recording, and scrollback can retain that display. Initialize in a private terminal, write the seed down offline, and close or clear the terminal according to the terminal emulator's behavior.
 
 Commands that print passwords, including `get --password-only` and `list --secrets`, intentionally expose them to standard output. Avoid shell tracing, terminal recording, shared sessions, and untrusted log collectors.

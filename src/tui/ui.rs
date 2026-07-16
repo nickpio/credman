@@ -82,8 +82,8 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(35),
-            Constraint::Length(8),
+            Constraint::Percentage(28),
+            Constraint::Length(12),
             Constraint::Min(1),
         ])
         .split(area);
@@ -121,6 +121,21 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
             )),
             Line::from(""),
             Line::from("Enter to unlock · Ctrl+C / Esc to quit"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Forgot seed?",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                "credman never stores your seed and cannot recover it.",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(Span::styled(
+                "Without your offline backup, this vault is permanently lost.",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
         if let Some(err) = &app.unlock_error {
             lines.push(Line::from(Span::styled(
