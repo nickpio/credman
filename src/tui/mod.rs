@@ -19,13 +19,6 @@ use self::input::handle_event;
 use self::ui::draw;
 
 pub fn run(vault_path: &Path) -> Result<()> {
-    if !vault_path.exists() {
-        anyhow::bail!(
-            "vault not found at {}. Run `credman init` or `credman restore` first.",
-            vault_path.display()
-        );
-    }
-
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;

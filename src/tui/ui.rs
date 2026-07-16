@@ -9,6 +9,7 @@ use super::app::{App, InputField, Screen, StatusKind};
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
     match app.screen {
+        Screen::Setup => draw_setup(f, app, area),
         Screen::Unlock => draw_unlock(f, app, area),
         Screen::Main | Screen::ConfirmDelete => draw_main(f, app, area),
         Screen::Add | Screen::Edit => {
@@ -25,6 +26,56 @@ fn status_style(kind: StatusKind) -> Style {
         StatusKind::Success => Style::default().fg(Color::Green),
         StatusKind::Error => Style::default().fg(Color::Red),
     }
+}
+
+fn draw_setup(f: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(30),
+            Constraint::Length(10),
+            Constraint::Min(1),
+        ])
+        .split(area);
+
+    let title = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "credman",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from("No vault found"),
+    ])
+    .alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(title, chunks[0]);
+
+    let lines = vec![
+        Line::from(format!("Path: {}", app.path.display())),
+        Line::from(""),
+        Line::from("Create a new vault:"),
+        Line::from(Span::styled(
+            "  credman init",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from("Or restore with an existing seed:"),
+        Line::from(Span::styled(
+            "  credman restore",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(""),
+        Line::from("q / Esc to quit"),
+    ];
+    let box_w = chunks[1].width.min(80);
+    let box_x = chunks[1].x + (chunks[1].width.saturating_sub(box_w)) / 2;
+    let setup_area = Rect::new(box_x, chunks[1].y, box_w, chunks[1].height);
+    let block = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title(" First run "))
+        .alignment(ratatui::layout::Alignment::Left);
+    f.render_widget(block, setup_area);
+
+    let status = Paragraph::new(app.status.as_str()).style(status_style(app.status_kind));
+    f.render_widget(status, chunks[2]);
 }
 
 fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {

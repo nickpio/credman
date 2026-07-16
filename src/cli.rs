@@ -37,6 +37,8 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Show vault path and whether it exists (no unlock)
+    Status,
     /// Unlock an existing vault file, or create one from an existing seed
     Restore {
         /// Overwrite existing vault with a new empty vault (dangerous)
@@ -86,6 +88,7 @@ pub fn run() -> Result<()> {
     match cli.command {
         None | Some(Commands::Tui) => tui::run(&vault_path),
         Some(Commands::Init { force }) => cmd_init(&vault_path, force),
+        Some(Commands::Status) => cmd_status(&vault_path),
         Some(Commands::Restore { force }) => cmd_restore(&vault_path, force),
         Some(Commands::Add { generate, length }) => cmd_add(&vault_path, generate, length),
         Some(Commands::Get {
@@ -313,6 +316,25 @@ fn cmd_restore(path: &PathBuf, force: bool) -> Result<()> {
         UnlockedVault::create(path, &phrase)?;
     }
     println!("Vault created at {}", path.display());
+    Ok(())
+}
+
+fn cmd_status(path: &PathBuf) -> Result<()> {
+    println!("vault:  {}", path.display());
+    if path.exists() {
+        let meta = std::fs::metadata(path).with_context(|| {
+            format!("failed to read vault metadata at {}", path.display())
+        })?;
+        println!("status: present");
+        println!("size:   {} bytes", meta.len());
+        if let Ok(modified) = meta.modified() {
+            let dt: chrono::DateTime<Utc> = modified.into();
+            println!("mtime:  {}", dt.to_rfc3339());
+        }
+    } else {
+        println!("status: missing");
+        println!("hint:   run `credman init` (new) or `credman restore` (existing seed)");
+    }
     Ok(())
 }
 

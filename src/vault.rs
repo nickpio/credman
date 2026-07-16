@@ -455,4 +455,64 @@ mod tests {
             0o600
         );
     }
+
+    #[test]
+    fn load_missing_returns_not_found() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("missing-vault");
+        match VaultFile::load(&path) {
+            Err(VaultError::NotFound(p)) => assert_eq!(p, path),
+            Err(e) => panic!("expected NotFound, got {e}"),
+            Ok(_) => panic!("expected NotFound, got Ok"),
+        }
+    }
+
+    #[test]
+    fn unlock_missing_returns_not_found() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("missing-vault");
+        let phrase = generate_mnemonic().unwrap();
+        match UnlockedVault::unlock(&path, &phrase) {
+            Err(VaultError::NotFound(p)) => assert_eq!(p, path),
+            Err(e) => panic!("expected NotFound, got {e}"),
+            Ok(_) => panic!("expected NotFound, got Ok"),
+        }
+    }
+
+    #[test]
+    fn restore_create_when_missing() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault");
+        let phrase = generate_mnemonic().unwrap();
+        assert!(!path.exists());
+        UnlockedVault::create(&path, &phrase).unwrap();
+        let unlocked = UnlockedVault::unlock(&path, &phrase).unwrap();
+        assert!(unlocked.data.entries.is_empty());
+    }
+
+    #[test]
+    fn restore_replace_overwrites_existing() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault");
+        let phrase = generate_mnemonic().unwrap();
+        let other = generate_mnemonic().unwrap();
+        {
+            let mut v = UnlockedVault::create(&path, &phrase).unwrap();
+            v.data.entries.push(Entry {
+                id: Uuid::new_v4(),
+                name: "old".into(),
+                username: String::new(),
+                password: "gone".into(),
+                url: String::new(),
+                notes: String::new(),
+                tags: vec![],
+                updated_at: Utc::now(),
+            });
+            v.persist().unwrap();
+        }
+        UnlockedVault::replace(&path, &other).unwrap();
+        let unlocked = UnlockedVault::unlock(&path, &other).unwrap();
+        assert!(unlocked.data.entries.is_empty());
+        assert!(UnlockedVault::unlock(&path, &phrase).is_err());
+    }
 }

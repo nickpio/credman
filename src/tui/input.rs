@@ -22,6 +22,7 @@ pub fn handle_event(app: &mut App) -> Result<bool> {
     }
 
     match app.screen {
+        Screen::Setup => handle_setup(app, key.code),
         Screen::Unlock => handle_unlock(app, key),
         Screen::Main => handle_main(app, key.code),
         Screen::Add | Screen::Edit => handle_form(app, key.code),
@@ -29,6 +30,15 @@ pub fn handle_event(app: &mut App) -> Result<bool> {
         Screen::Quit => return Ok(true),
     }
     Ok(app.screen == Screen::Quit)
+}
+
+fn handle_setup(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+            app.screen = Screen::Quit;
+        }
+        _ => {}
+    }
 }
 
 fn handle_unlock(app: &mut App, key: KeyEvent) {

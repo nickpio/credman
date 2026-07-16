@@ -17,6 +17,7 @@ use crate::vault::{UnlockedVault, VaultError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
+    Setup,
     Unlock,
     Main,
     Add,
@@ -103,9 +104,14 @@ pub struct App {
 
 impl App {
     pub fn new(path: PathBuf) -> Self {
+        let exists = path.exists();
         Self {
             path,
-            screen: Screen::Unlock,
+            screen: if exists {
+                Screen::Unlock
+            } else {
+                Screen::Setup
+            },
             seed_input: String::new(),
             show_seed: false,
             unlock_error: None,
@@ -115,7 +121,11 @@ impl App {
             filtering: false,
             selected: 0,
             show_password: false,
-            status: "Enter seed phrase and press Enter".into(),
+            status: if exists {
+                "Enter seed phrase and press Enter".into()
+            } else {
+                "No vault yet — create one to get started".into()
+            },
             status_kind: StatusKind::Info,
             form: FormState::default(),
             filtered_indices: Vec::new(),
