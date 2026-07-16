@@ -52,6 +52,8 @@ To use the same vault on another device, copy the encrypted vault file to that p
 | Command | Description |
 |---------|-------------|
 | `credman init` | Create vault; display and confirm 12-word seed phrase |
+| `credman status` | Show vault path and whether it exists (no unlock) |
+| `credman backup <dir>` | Copy encrypted vault to a timestamped file in `<dir>` |
 | `credman restore` | Verify a copied vault with your seed, or create an empty vault from an existing seed |
 | `credman restore --force` | Overwrite an existing vault with a new empty vault using a provided seed |
 | `credman add` | Add an entry (interactive prompts) |
@@ -65,7 +67,13 @@ To use the same vault on another device, copy the encrypted vault file to that p
 | `credman rm <name\|id>` | Delete an entry |
 | `credman tui` | Open the TUI |
 
+Global flags: `--vault <path>`, `--seed <phrase>` (scripting only — may appear in shell history).
+
+After `init` / `restore`, you can optionally write down a short seed fingerprint (not stored; for offline verification later).
+
 ## TUI keys
+
+On the unlock screen, a **Forgot seed?** note reminds you that credman cannot recover a lost phrase.
 
 After unlock:
 
@@ -136,7 +144,7 @@ seed phrase → Argon2id(salt) → AES-256-GCM key → encrypted vault file
 | Malware in your user session while unlocked | Can scrape memory / terminal — OS compromise wins |
 | Lost seed phrase | Vault is unrecoverable |
 
-**Backup**: keep an offline copy of the seed phrase. Optionally back up the encrypted vault file separately — without the seed it is useless to an attacker; with the seed it restores everything. On a new device, copy the vault file and run `credman restore`.
+**Backup**: keep an offline copy of the seed phrase. Use `credman backup <dir>` to copy the encrypted vault to a timestamped file (no unlock required) — without the seed it is useless to an attacker; with the seed it restores everything. On a new device, copy the vault file and run `credman restore`.
 
 See [SECURITY.md](SECURITY.md) for trust boundaries, operational details, limitations, and recovery guidance.
 

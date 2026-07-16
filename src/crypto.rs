@@ -5,6 +5,7 @@ use aes_gcm::{
 use argon2::{Algorithm, Argon2, Params, Version};
 use bip39::{Language, Mnemonic};
 use rand::RngCore;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -65,6 +66,17 @@ pub fn validate_mnemonic(phrase: &str) -> Result<(), CryptoError> {
 
 pub fn normalize_mnemonic(phrase: &str) -> String {
     phrase.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Short non-secret check value for an offline seed backup.
+///
+/// First 4 hex characters of SHA-256 over the normalized BIP39 phrase.
+/// Never stored by credman — purely advisory for the user.
+pub fn seed_fingerprint(phrase: &str) -> Result<String, CryptoError> {
+    validate_mnemonic(phrase)?;
+    let normalized = Zeroizing::new(normalize_mnemonic(phrase));
+    let digest = Sha256::digest(normalized.as_bytes());
+    Ok(format!("{:02x}{:02x}", digest[0], digest[1]))
 }
 
 pub fn derive_key(mnemonic: &str, salt: &[u8]) -> Result<VaultKey, CryptoError> {
@@ -157,5 +169,22 @@ mod tests {
         let nonce = random_nonce();
         let ct = encrypt(&key, &nonce, b"secret").unwrap();
         assert!(decrypt(&bad, &nonce, &ct).is_err());
+    }
+
+    #[test]
+    fn seed_fingerprint_is_stable_and_short() {
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let a = seed_fingerprint(phrase).unwrap();
+        let b = seed_fingerprint(&format!("  {phrase}  ")).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 4);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn seed_fingerprint_differs_for_different_phrases() {
+        let a = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let b = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+        assert_ne!(seed_fingerprint(a).unwrap(), seed_fingerprint(b).unwrap());
     }
 }
