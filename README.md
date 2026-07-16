@@ -79,7 +79,9 @@ After unlock:
 
 | Key | Action |
 |-----|--------|
-| `/` | Filter list |
+| `/` | Filter list (fuzzy) |
+| `:` | Command palette (fuzzy actions) |
+| `?` | Show keyboard shortcuts |
 | `j` / `k` or arrows | Move selection |
 | `a` | Add entry |
 | `e` | Edit entry |

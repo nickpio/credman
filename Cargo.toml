@@ -19,6 +19,7 @@ dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 dirs = "6"
 fs2 = "0.4.3"
 fuzzy-matcher = "0.3"
+gethostname = "1"
 rand = "0.8"
 ratatui = "0.29"
 rpassword = "7"

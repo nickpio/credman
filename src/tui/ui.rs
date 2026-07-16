@@ -32,8 +32,8 @@ fn draw_setup(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(30),
-            Constraint::Length(10),
+            Constraint::Percentage(25),
+            Constraint::Length(14),
             Constraint::Min(1),
         ])
         .split(area);
@@ -45,32 +45,50 @@ fn draw_setup(f: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from("No vault found"),
+        Line::from(Span::styled(
+            "No vault found — first-run setup",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
     ])
     .alignment(ratatui::layout::Alignment::Center);
     f.render_widget(title, chunks[0]);
 
     let lines = vec![
-        Line::from(format!("Path: {}", app.path.display())),
+        Line::from(format!("Vault path: {}", app.path.display())),
         Line::from(""),
-        Line::from("Create a new vault:"),
         Line::from(Span::styled(
-            "  credman init",
-            Style::default().fg(Color::Yellow),
+            "  [ i ]  Create a new vault",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )),
-        Line::from("Or restore with an existing seed:"),
-        Line::from(Span::styled(
-            "  credman restore",
-            Style::default().fg(Color::Yellow),
-        )),
+        Line::from("         → exit, then run  credman init"),
         Line::from(""),
-        Line::from("q / Esc to quit"),
+        Line::from(Span::styled(
+            "  [ r ]  Restore with an existing seed",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from("         → exit, then run  credman restore"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  [ q ]  Quit",
+            Style::default().fg(Color::DarkGray),
+        )),
     ];
     let box_w = chunks[1].width.min(80);
     let box_x = chunks[1].x + (chunks[1].width.saturating_sub(box_w)) / 2;
     let setup_area = Rect::new(box_x, chunks[1].y, box_w, chunks[1].height);
     let block = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title(" First run "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Setup ")
+                .border_style(Style::default().fg(Color::Yellow)),
+        )
         .alignment(ratatui::layout::Alignment::Left);
     f.render_widget(block, setup_area);
 
@@ -82,8 +100,8 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(28),
-            Constraint::Length(12),
+            Constraint::Percentage(22),
+            Constraint::Length(14),
             Constraint::Min(1),
         ])
         .split(area);
@@ -96,6 +114,10 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from("Unlock vault with your 12-word BIP39 seed phrase"),
+        Line::from(Span::styled(
+            format!("Vault: {}", app.path.display()),
+            Style::default().fg(Color::DarkGray),
+        )),
     ])
     .alignment(ratatui::layout::Alignment::Center);
     f.render_widget(title, chunks[0]);
@@ -103,13 +125,18 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
     let lines = if app.unlocking {
         vec![
             Line::from(Span::styled(
-                "Unlocking…",
+                app.unlock_progress_label(),
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
-            Line::from("Deriving key — please wait"),
+            Line::from(format!("Vault: {}", app.path.display())),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Key derivation uses Argon2id and is slow by design.",
+                Style::default().fg(Color::DarkGray),
+            )),
         ]
     } else {
         let visibility = if app.show_seed { "shown" } else { "hidden" };
@@ -266,6 +293,75 @@ fn draw_main(f: &mut Frame, app: &App, area: Rect) {
     if app.screen == Screen::ConfirmDelete {
         draw_confirm(f, app, area);
     }
+    if app.show_help {
+        draw_help(f, area);
+    }
+    if app.palette_open {
+        draw_palette(f, app, area);
+    }
+}
+
+fn draw_help(f: &mut Frame, area: Rect) {
+    let popup = centered_rect(56, 16, area);
+    f.render_widget(Clear, popup);
+    let lines = vec![
+        Line::from(Span::styled(
+            "Keyboard shortcuts",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("/          filter entries (fuzzy)"),
+        Line::from(":          command palette (fuzzy)"),
+        Line::from("j / k      move selection"),
+        Line::from("a / e / d  add / edit / delete"),
+        Line::from("c          copy password"),
+        Line::from("r / Space  reveal or hide password"),
+        Line::from("?          toggle this help"),
+        Line::from("q / Esc    quit and lock"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Press ? or Esc to close",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+    let p = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" Help "));
+    f.render_widget(p, popup);
+}
+
+fn draw_palette(f: &mut Frame, app: &App, area: Rect) {
+    let popup = centered_rect(60, 14, area);
+    f.render_widget(Clear, popup);
+    let actions = app.filtered_palette_actions();
+    let mut lines = vec![Line::from(format!(":{}", app.palette_query))];
+    if actions.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No matching actions",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for (i, (_, name, desc, _)) in actions.iter().enumerate().take(8) {
+            let label = format!("{name:<8} {desc}");
+            let style = if i == app.palette_selected {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            lines.push(Line::from(Span::styled(label, style)));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "↑↓ select · Enter run · Esc cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+    let p = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Commands "),
+    );
+    f.render_widget(p, popup);
 }
 
 fn draw_confirm(f: &mut Frame, app: &App, area: Rect) {
