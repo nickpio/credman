@@ -178,6 +178,7 @@ fn draw_unlock(f: &mut Frame, app: &App, area: Rect) {
     let unlock_area = Rect::new(box_x, chunks[1].y, box_w, chunks[1].height);
     let block = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL).title(" Unlock "))
+        .wrap(Wrap { trim: false })
         .alignment(ratatui::layout::Alignment::Left);
     f.render_widget(block, unlock_area);
 
@@ -238,44 +239,20 @@ fn draw_main(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 "••••••••".into()
             };
-            vec![
-                Line::from(vec![
-                    Span::styled("Name:     ", Style::default().fg(Color::Cyan)),
-                    Span::raw(e.name.clone()),
-                ]),
-                Line::from(vec![
-                    Span::styled("Username: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(e.username.clone()),
-                ]),
-                Line::from(vec![
-                    Span::styled("Password: ", Style::default().fg(Color::Cyan)),
-                    Span::raw(pw),
-                ]),
-                Line::from(vec![
-                    Span::styled("URL:      ", Style::default().fg(Color::Cyan)),
-                    Span::raw(e.url.clone()),
-                ]),
-                Line::from(vec![
-                    Span::styled("Tags:     ", Style::default().fg(Color::Cyan)),
-                    Span::raw(e.tags.join(", ")),
-                ]),
-                Line::from(vec![
-                    Span::styled("Notes:    ", Style::default().fg(Color::Cyan)),
-                    Span::raw(e.notes.clone()),
-                ]),
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled("Id:       ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(e.id.to_string(), Style::default().fg(Color::DarkGray)),
-                ]),
-                Line::from(vec![
-                    Span::styled("Updated:  ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(
-                        e.updated_at.to_rfc3339(),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                ]),
-            ]
+            let id = e.id.to_string();
+            let updated = e.updated_at.to_rfc3339();
+            let tags = e.tags.join(", ");
+            let mut lines = Vec::new();
+            lines.extend(detail_field("Name", e.name.clone(), Color::Cyan));
+            lines.extend(detail_field("Username", e.username.clone(), Color::Cyan));
+            lines.extend(detail_field("Password", pw, Color::Cyan));
+            lines.extend(detail_field("URL", e.url.clone(), Color::Cyan));
+            lines.extend(detail_field("Tags", tags, Color::Cyan));
+            lines.extend(detail_field("Notes", e.notes.clone(), Color::Cyan));
+            lines.push(Line::from(""));
+            lines.extend(detail_field("Id", id, Color::DarkGray));
+            lines.extend(detail_field("Updated", updated, Color::DarkGray));
+            lines
         }
         None => vec![Line::from(
             app.list_empty_message()
@@ -441,4 +418,16 @@ fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+/// Label on its own line, value on the next so Paragraph wrap can use full width.
+fn detail_field(label: &str, value: String, color: Color) -> Vec<Line<'static>> {
+    let label_style = Style::default().fg(color);
+    if value.is_empty() {
+        return vec![Line::from(Span::styled(format!("{label}:"), label_style))];
+    }
+    vec![
+        Line::from(Span::styled(format!("{label}:"), label_style)),
+        Line::from(Span::raw(value)),
+    ]
 }
