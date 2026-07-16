@@ -1,3 +1,4 @@
+mod backup;
 mod cli;
 mod clipboard;
 mod crypto;

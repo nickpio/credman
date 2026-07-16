@@ -82,12 +82,17 @@ pub fn seed_fingerprint(phrase: &str) -> Result<String, CryptoError> {
 pub fn derive_key(mnemonic: &str, salt: &[u8]) -> Result<VaultKey, CryptoError> {
     validate_mnemonic(mnemonic)?;
     let normalized = Zeroizing::new(normalize_mnemonic(mnemonic));
+    derive_key_from_secret(normalized.as_bytes(), salt)
+}
+
+/// Derive a vault key from an arbitrary secret (seed bytes or backup passphrase).
+pub fn derive_key_from_secret(secret: &[u8], salt: &[u8]) -> Result<VaultKey, CryptoError> {
     let params = Params::new(ARGON2_M_KIB, ARGON2_T_COST, ARGON2_P_COST, Some(KEY_LEN))
         .map_err(|_| CryptoError::Kdf)?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut key = [0u8; KEY_LEN];
     argon2
-        .hash_password_into(normalized.as_bytes(), salt, &mut key)
+        .hash_password_into(secret, salt, &mut key)
         .map_err(|_| CryptoError::Kdf)?;
     Ok(VaultKey { key })
 }
@@ -186,5 +191,13 @@ mod tests {
         let a = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let b = "legal winner thank year wave sausage worth useful legal winner thank yellow";
         assert_ne!(seed_fingerprint(a).unwrap(), seed_fingerprint(b).unwrap());
+    }
+
+    #[test]
+    fn passphrase_secret_derives_distinct_key() {
+        let salt = random_salt();
+        let a = derive_key_from_secret(b"passphrase-one", &salt).unwrap();
+        let b = derive_key_from_secret(b"passphrase-two", &salt).unwrap();
+        assert_ne!(a.as_bytes(), b.as_bytes());
     }
 }

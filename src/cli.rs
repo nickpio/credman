@@ -11,6 +11,9 @@ use rand::Rng;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::backup::{
+    self, merge_entries, BackupSecretKind, EncryptedBackup, MIN_PASSPHRASE_CHARS,
+};
 use crate::clipboard::{self, HelperSchedule};
 use crate::crypto::{generate_mnemonic, normalize_mnemonic, seed_fingerprint, validate_mnemonic};
 use crate::model::Entry;
@@ -86,6 +89,25 @@ pub enum Commands {
     },
     /// Open the interactive TUI
     Tui,
+    /// Export an encrypted JSON backup of the vault
+    Export {
+        /// Destination path for the backup JSON file
+        path: PathBuf,
+        /// Encrypt the backup with a separate passphrase instead of the seed
+        #[arg(long)]
+        passphrase: bool,
+    },
+    /// Import an encrypted JSON backup into the vault
+    Import {
+        /// Path to the backup JSON file
+        path: PathBuf,
+        /// Merge entries by id instead of replacing the vault contents
+        #[arg(long)]
+        merge: bool,
+        /// Skip confirmation prompts
+        #[arg(long)]
+        yes: bool,
+    },
     #[command(hide = true)]
     ClipboardClear,
 }
@@ -113,6 +135,12 @@ pub fn run() -> Result<()> {
         Some(Commands::List { secrets }) => cmd_list(&vault_path, secrets, seed_ref),
         Some(Commands::Edit { query }) => cmd_edit(&vault_path, &query, seed_ref),
         Some(Commands::Rm { query, yes }) => cmd_rm(&vault_path, &query, yes, seed_ref),
+        Some(Commands::Export { path, passphrase }) => {
+            cmd_export(&vault_path, &path, passphrase, seed_ref)
+        }
+        Some(Commands::Import { path, merge, yes }) => {
+            cmd_import(&vault_path, &path, merge, yes, seed_ref)
+        }
         Some(Commands::ClipboardClear) => {
             clipboard::run_clear_helper().context("clipboard clear helper failed")
         }
@@ -667,5 +695,142 @@ fn cmd_rm(path: &PathBuf, query: &str, yes: bool, cli_seed: Option<&str>) -> Res
     vault.persist()?;
     println!("Deleted '{name}'");
     let _ = io::stdout().flush();
+    Ok(())
+}
+
+fn prompt_passphrase(confirm: bool) -> Result<Zeroizing<String>> {
+    let prompt_text = format!("Backup passphrase (min {MIN_PASSPHRASE_CHARS} characters)");
+    let phrase = if confirm {
+        Password::new()
+            .with_prompt(&prompt_text)
+            .with_confirmation("Confirm passphrase", "Passphrases do not match")
+            .interact()
+            .context("failed to read passphrase")?
+    } else {
+        Password::new()
+            .with_prompt(&prompt_text)
+            .interact()
+            .context("failed to read passphrase")?
+    };
+    backup::validate_passphrase(&phrase)?;
+    Ok(Zeroizing::new(phrase))
+}
+
+fn cmd_export(
+    vault_path: &PathBuf,
+    out_path: &PathBuf,
+    use_passphrase: bool,
+    cli_seed: Option<&str>,
+) -> Result<()> {
+    if out_path.exists() {
+        if !Confirm::new()
+            .with_prompt(format!("Overwrite {}?", out_path.display()))
+            .default(false)
+            .interact()?
+        {
+            bail!("aborted");
+        }
+    }
+
+    let phrase = prompt_seed(cli_seed)?;
+    let vault = UnlockedVault::unlock(vault_path, &phrase).context("failed to unlock vault")?;
+
+    let backup = if use_passphrase {
+        let passphrase = prompt_passphrase(true)?;
+        EncryptedBackup::encrypt_with_passphrase(&vault.data, &passphrase)?
+    } else {
+        EncryptedBackup::encrypt_with_seed(&vault.data, &phrase)?
+    };
+
+    backup
+        .save(out_path)
+        .with_context(|| format!("failed to write backup to {}", out_path.display()))?;
+    println!(
+        "Exported {} entr{} to {} ({})",
+        vault.data.entries.len(),
+        if vault.data.entries.len() == 1 {
+            "y"
+        } else {
+            "ies"
+        },
+        out_path.display(),
+        if use_passphrase {
+            "passphrase-encrypted"
+        } else {
+            "seed-encrypted"
+        }
+    );
+    Ok(())
+}
+
+fn cmd_import(
+    vault_path: &PathBuf,
+    in_path: &PathBuf,
+    merge: bool,
+    yes: bool,
+    cli_seed: Option<&str>,
+) -> Result<()> {
+    let backup = EncryptedBackup::load(in_path)
+        .with_context(|| format!("failed to read backup from {}", in_path.display()))?;
+
+    let (imported, seed) = match backup.secret {
+        BackupSecretKind::Passphrase => {
+            let passphrase = prompt_passphrase(false)?;
+            let imported = backup
+                .decrypt_with_passphrase(&passphrase)
+                .context("failed to decrypt backup")?;
+            println!("Enter the vault seed phrase to unlock the destination vault.\n");
+            let seed = prompt_seed(cli_seed)?;
+            (imported, seed)
+        }
+        BackupSecretKind::Seed => {
+            let seed = prompt_seed(cli_seed)?;
+            let imported = backup
+                .decrypt_with_seed(&seed)
+                .context("failed to decrypt backup")?;
+            (imported, seed)
+        }
+    };
+
+    let count = imported.entries.len();
+    let action = if merge {
+        "Merge"
+    } else {
+        "Replace vault with"
+    };
+    if !yes
+        && !Confirm::new()
+            .with_prompt(format!(
+                "{action} {count} entr{} from {}?",
+                if count == 1 { "y" } else { "ies" },
+                in_path.display()
+            ))
+            .default(false)
+            .interact()?
+    {
+        bail!("aborted");
+    }
+
+    let mut vault = if vault_path.exists() {
+        UnlockedVault::unlock(vault_path, &seed).context("failed to unlock vault")?
+    } else {
+        println!(
+            "No vault at {}; creating one from the provided seed.\n",
+            vault_path.display()
+        );
+        UnlockedVault::create(vault_path, &seed)?
+    };
+
+    if merge {
+        merge_entries(&mut vault.data, imported);
+    } else {
+        vault.data = imported;
+    }
+    vault.persist()?;
+    println!(
+        "Imported into {} ({} entries).",
+        vault_path.display(),
+        vault.data.entries.len()
+    );
     Ok(())
 }
