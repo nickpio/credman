@@ -66,10 +66,41 @@ To use the same vault on another device, copy the encrypted vault file to that p
 | `credman edit <name\|id>` | Edit an entry |
 | `credman rm <name\|id>` | Delete an entry |
 | `credman tui` | Open the TUI |
+| `credman usb prepare <mount>` | Lay out vault + binary on a mounted USB stick |
+| `credman usb enable` | Install Linux auto-launch watcher (one-time per machine) |
+| `credman usb disable` | Remove the auto-launch watcher |
+| `credman usb status` | Show helper state and any mounted `CREDMAN` volume |
 
 Global flags: `--vault <path>`, `--seed <phrase>` (scripting only — may appear in shell history).
 
 After `init` / `restore`, you can optionally write down a short seed fingerprint (not stored; for offline verification later).
+
+## USB hardware key (Linux)
+
+Treat a USB stick as a physical key: the **encrypted vault lives on the stick** (possession), and your **12-word seed** unlocks it (knowledge).
+
+1. Format or label the stick filesystem as `CREDMAN` (`fatlabel` / `exfatlabel` / `e2label`).
+2. Mount it, then:
+   ```bash
+   credman usb prepare /media/$USER/CREDMAN
+   ```
+   Copies your current vault (or `$CREDMAN_VAULT` / `--vault`) and a portable `bin/credman` onto the stick.
+3. On each trusted Linux machine, once:
+   ```bash
+   credman usb enable
+   ```
+   Installs a user systemd poller that opens a terminal with credman when a `CREDMAN` volume appears.
+4. Insert the stick → enter your seed → vault unlocks.
+
+Prefer a host-installed `credman` on `PATH`; if missing, the launcher uses `bin/credman` from the stick. Manual use without the watcher:
+
+```bash
+credman --vault /media/$USER/CREDMAN/vault
+```
+
+**WSL / non-native Linux:** `usb prepare` works anywhere. Auto-launch (`usb enable`) needs native Linux with systemd user sessions and a graphical terminal; WSL USB passthrough is out of scope.
+
+`credman usb disable` removes the watcher. See [SECURITY.md](SECURITY.md) for the USB threat model.
 
 ## TUI keys
 
@@ -135,13 +166,14 @@ seed phrase → Argon2id(salt) → AES-256-GCM key → encrypted vault file
 - On Unix, new vault directories use `0700`, the default `~/.credman` directory is hardened to `0700`, and vault files use `0600`.
 - A private advisory lock prevents concurrent credman sessions from silently overwriting changes.
 - Clipboard values are cleared after 30 seconds only when they still match the copied password.
-- Each CLI command unlocks for that process only (no background agent in v1).
+- Each CLI command unlocks for that process only. The optional USB watcher only launches a terminal; it never stores the seed or keeps a vault unlocked.
 
 ### Threat model (honest)
 
 | Threat | Status |
 |--------|--------|
 | Attacker steals vault file without seed | Cannot decrypt |
+| Attacker steals USB stick without seed | Cannot decrypt (ciphertext only) |
 | Attacker has seed + vault file | Full access (by design) |
 | Malware in your user session while unlocked | Can scrape memory / terminal — OS compromise wins |
 | Lost seed phrase | Vault is unrecoverable |
