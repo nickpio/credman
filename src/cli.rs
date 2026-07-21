@@ -18,6 +18,7 @@ use crate::clipboard::{self, HelperSchedule};
 use crate::crypto::{generate_mnemonic, normalize_mnemonic, seed_fingerprint, validate_mnemonic};
 use crate::model::Entry;
 use crate::tui;
+use crate::usb;
 use crate::validation::{validate_entry, validate_generated_password_length};
 use crate::vault::{UnlockedVault, VaultFile};
 
@@ -108,8 +109,34 @@ pub enum Commands {
         #[arg(long)]
         yes: bool,
     },
+    /// USB hardware-key helpers (Linux)
+    Usb {
+        #[command(subcommand)]
+        command: UsbCommands,
+    },
     #[command(hide = true)]
     ClipboardClear,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum UsbCommands {
+    /// Create portable layout on a mounted CREDMAN stick
+    Prepare {
+        /// Mount point of the USB stick
+        mount: PathBuf,
+        /// Overwrite an existing vault on the stick
+        #[arg(long)]
+        force: bool,
+        /// Copy this vault file instead of the current default/--vault path
+        #[arg(long)]
+        from: Option<PathBuf>,
+    },
+    /// Install user-level auto-launch watcher (systemd)
+    Enable,
+    /// Remove auto-launch watcher
+    Disable,
+    /// Show helper install state and any mounted CREDMAN volume
+    Status,
 }
 
 pub fn run() -> Result<()> {
@@ -141,6 +168,7 @@ pub fn run() -> Result<()> {
         Some(Commands::Import { path, merge, yes }) => {
             cmd_import(&vault_path, &path, merge, yes, seed_ref)
         }
+        Some(Commands::Usb { command }) => cmd_usb(command, &vault_path),
         Some(Commands::ClipboardClear) => {
             clipboard::run_clear_helper().context("clipboard clear helper failed")
         }
@@ -440,6 +468,106 @@ fn cmd_backup(vault_path: &PathBuf, dir: &PathBuf) -> Result<()> {
     })?;
     println!("Backup written to {}", dest.display());
     Ok(())
+}
+
+fn cmd_usb(command: UsbCommands, default_vault: &PathBuf) -> Result<()> {
+    match command {
+        UsbCommands::Prepare { mount, force, from } => {
+            let source = match from {
+                Some(p) => Some(p),
+                None if default_vault.exists() => Some(default_vault.clone()),
+                None => None,
+            };
+            let report = usb::prepare(&mount, source.as_deref(), force)
+                .context("failed to prepare USB stick")?;
+            println!("Prepared USB layout at {}", report.mount.display());
+            if report.copied_vault {
+                println!("vault:  copied to {}", report.vault.display());
+            } else if report.needs_init {
+                println!("vault:  not present yet");
+                println!(
+                    "hint:   run `credman --vault {} init` then re-run prepare, or pass --from",
+                    report.vault.display()
+                );
+            } else {
+                println!("vault:  {}", report.vault.display());
+            }
+            if report.copied_binary {
+                println!("binary: copied to {}/bin/credman", report.mount.display());
+            } else {
+                println!("binary: not copied (install credman on the host, or place bin/credman)");
+            }
+            println!("readme: {}/CREDMAN.txt", report.mount.display());
+            println!(
+                "\nLabel this filesystem CREDMAN (fatlabel/exfatlabel/e2label), then:\n  credman usb enable"
+            );
+            Ok(())
+        }
+        UsbCommands::Enable => {
+            let report = usb::enable().context("failed to enable USB auto-launch")?;
+            println!("Installed launcher: {}", report.launch_path.display());
+            println!("Installed watcher:  {}", report.watch_path.display());
+            println!("Installed unit:     {}", report.service_path.display());
+            println!("{}", report.systemd_message);
+            if report.systemd_ok {
+                println!(
+                    "\nInsert a stick labeled CREDMAN with a vault file to open credman."
+                );
+            } else {
+                println!(
+                    "\nYou can start the watcher manually:\n  sh {}",
+                    report.watch_path.display()
+                );
+            }
+            Ok(())
+        }
+        UsbCommands::Disable => {
+            let report = usb::disable().context("failed to disable USB auto-launch")?;
+            for m in &report.messages {
+                println!("{m}");
+            }
+            if report.removed.is_empty() {
+                println!("No helper files found to remove.");
+            } else {
+                for p in &report.removed {
+                    println!("removed {}", p.display());
+                }
+            }
+            Ok(())
+        }
+        UsbCommands::Status => {
+            let st = usb::status().context("failed to read USB status")?;
+            println!("label:            {}", usb::VOLUME_LABEL);
+            println!(
+                "helper installed: {}",
+                if st.helper_installed { "yes" } else { "no" }
+            );
+            println!(
+                "watcher active:   {}",
+                if st.service_active { "yes" } else { "no" }
+            );
+            match st.mount {
+                Some(ref m) => {
+                    println!("mount:            {}", m.display());
+                    match st.vault {
+                        Some(ref v) if st.vault_exists => {
+                            println!("vault:            {} (present)", v.display())
+                        }
+                        Some(ref v) => println!("vault:            {} (missing)", v.display()),
+                        None => println!("vault:            unknown"),
+                    }
+                    match st.binary {
+                        Some(ref b) => println!("binary:           {}", b.display()),
+                        None => println!("binary:           not found (host PATH or stick bin/)"),
+                    }
+                }
+                None => {
+                    println!("mount:            (no {} volume mounted)", usb::VOLUME_LABEL);
+                }
+            }
+            Ok(())
+        }
+    }
 }
 
 fn generate_password(len: usize) -> String {

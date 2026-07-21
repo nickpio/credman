@@ -129,6 +129,22 @@ If no vault file is present, `credman restore` can create a new empty vault from
 
 Do not edit the binary vault, lock, or temporary files manually. There is no seed recovery or reset flow.
 
+## USB hardware key
+
+On Linux, the encrypted vault may live on a removable volume labeled `CREDMAN`. The stick is a possession factor; the seed remains the only unlock secret and is never written to the stick by credman.
+
+`credman usb prepare` copies the vault and an optional portable binary onto a mounted stick. `credman usb enable` installs a **user-level** systemd poller and launcher scripts under `~/.config/credman/` that open a terminal when that labeled volume appears. The helper does not store the seed, does not unlock the vault, and runs as the logged-in user.
+
+Threat notes:
+
+- Theft of the stick without the seed yields ciphertext only.
+- An attacker with both the stick and the seed has full access (same as any vault copy).
+- Auto-launch on an untrusted host is unsafe: unlocked plaintext lives in process memory on that machine.
+- A replaced `bin/credman` on the stick is equivalent to a malicious binary — prefer a host-installed credman on `PATH`.
+- WSL and environments without systemd user sessions are not supported for auto-launch; preparing a stick still works.
+
+`credman usb disable` removes the helper files and disables the user unit.
+
 ## Reporting a security issue
 
 Do not include seed phrases, passwords, vault files, or other credentials in a public report. Provide a minimal reproduction using generated test data and describe the operating system, filesystem, terminal, and clipboard environment involved.
