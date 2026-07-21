@@ -328,6 +328,10 @@ fn device_hostname() -> String {
 }
 
 fn cmd_init(path: &PathBuf, force: bool, cli_seed: Option<&str>) -> Result<()> {
+    if cli_seed.is_some() {
+        bail!("--seed is not valid with init; use `credman restore` to create a vault from an existing seed phrase");
+    }
+
     let replace = path.exists();
     if replace {
         if !force {
@@ -354,17 +358,20 @@ fn cmd_init(path: &PathBuf, force: bool, cli_seed: Option<&str>) -> Result<()> {
     println!("It is the ONLY way to unlock your vault. It will not be shown again.\n");
     println!("{}\n", phrase.as_str());
 
-    Confirm::new()
+    if !Confirm::new()
         .with_prompt("I have written down my seed phrase")
         .default(true)
-        .interact()?;
+        .interact()?
+    {
+        bail!("aborted");
+    }
 
     // Clear the terminal so the phrase is no longer visible before confirmation.
     print!("\x1B[2J\x1B[1;1H");
     let _ = io::stdout().flush();
 
     println!("Re-enter your seed phrase to confirm you wrote it down correctly.\n");
-    let confirmed = prompt_seed(cli_seed)?;
+    let confirmed = prompt_seed(None)?;
     if confirmed.as_str() != phrase.as_str() {
         bail!("confirmation did not match; vault not created");
     }

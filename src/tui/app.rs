@@ -133,6 +133,8 @@ pub struct App {
     pub palette_selected: usize,
     delete_target: Option<Uuid>,
     clipboard_copy: Option<PendingClipboard>,
+    /// True when vault data has changed since the last successful persist.
+    pub dirty: bool,
 }
 
 impl App {
@@ -171,6 +173,7 @@ impl App {
             palette_selected: 0,
             delete_target: None,
             clipboard_copy: None,
+            dirty: false,
         }
     }
 
@@ -495,11 +498,14 @@ impl App {
 
         let previous_data = std::mem::replace(&mut vault.data, next_data);
         let editing = self.form.edit_id.is_some();
+        self.dirty = true;
         if let Err(error) = vault.persist() {
             vault.data = previous_data;
+            self.dirty = false;
             self.error_status(format!("Save failed: {error}"));
             return;
         }
+        self.dirty = false;
         if editing {
             self.success("Entry updated");
         } else {
@@ -531,9 +537,11 @@ impl App {
                 if let Some(index) = vault.data.entries.iter().position(|entry| entry.id == id) {
                     let name = vault.data.entries[index].name.clone();
                     vault.data.entries.remove(index);
+                    self.dirty = true;
                     if let Err(e) = vault.persist() {
                         self.error_status(format!("Save failed: {e}"));
                     } else {
+                        self.dirty = false;
                         self.success(format!("Deleted '{name}'"));
                     }
                 }

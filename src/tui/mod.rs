@@ -59,8 +59,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, vault_path: &P
         }
     }
 
-    if let Some(ref mut vault) = app.vault {
-        vault.persist().context("failed to save vault on exit")?;
+    if app.dirty {
+        if let Some(ref mut vault) = app.vault {
+            vault.persist().context("failed to save vault on exit")?;
+        }
     }
     Ok(())
 }
