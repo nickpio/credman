@@ -360,7 +360,7 @@ fn cmd_init(path: &PathBuf, force: bool, cli_seed: Option<&str>) -> Result<()> {
 
     if !Confirm::new()
         .with_prompt("I have written down my seed phrase")
-        .default(true)
+        .default(false)
         .interact()?
     {
         bail!("aborted");
