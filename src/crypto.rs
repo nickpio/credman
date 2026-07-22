@@ -14,9 +14,18 @@ pub const NONCE_LEN: usize = 12;
 pub const KEY_LEN: usize = 32;
 
 /// Argon2id params tuned for ~0.5–1s interactive unlock on a typical laptop.
+/// New vaults/backups are written with these; unlock always uses params from the file.
 pub const ARGON2_M_KIB: u32 = 64 * 1024;
 pub const ARGON2_T_COST: u32 = 3;
 pub const ARGON2_P_COST: u32 = 1;
+
+/// Sanity bounds for Argon2 params read from vault/backup headers (DoS / malformed files).
+pub const ARGON2_M_KIB_MIN: u32 = 8;
+pub const ARGON2_M_KIB_MAX: u32 = 1024 * 1024; // 1 GiB
+pub const ARGON2_T_COST_MIN: u32 = 1;
+pub const ARGON2_T_COST_MAX: u32 = 100;
+pub const ARGON2_P_COST_MIN: u32 = 1;
+pub const ARGON2_P_COST_MAX: u32 = 16;
 
 #[derive(Debug, Error)]
 pub enum CryptoError {
@@ -24,12 +33,52 @@ pub enum CryptoError {
     InvalidMnemonic(String),
     #[error("key derivation failed")]
     Kdf,
+    #[error("unsupported Argon2 parameters")]
+    UnsupportedParams,
     #[error("encryption failed")]
     Encrypt,
     #[error("decryption failed (wrong seed phrase or corrupted vault)")]
     Decrypt,
     #[error("invalid nonce length")]
     BadNonce,
+}
+
+/// Argon2id parameters used for key derivation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KdfParams {
+    pub m_kib: u32,
+    pub t_cost: u32,
+    pub p_cost: u32,
+}
+
+impl KdfParams {
+    /// Parameters written by the current build when creating a vault or backup.
+    pub const fn current() -> Self {
+        Self {
+            m_kib: ARGON2_M_KIB,
+            t_cost: ARGON2_T_COST,
+            p_cost: ARGON2_P_COST,
+        }
+    }
+
+    /// Validate params from an on-disk header before deriving.
+    pub fn validated(m_kib: u32, t_cost: u32, p_cost: u32) -> Result<Self, CryptoError> {
+        if !(ARGON2_M_KIB_MIN..=ARGON2_M_KIB_MAX).contains(&m_kib)
+            || !(ARGON2_T_COST_MIN..=ARGON2_T_COST_MAX).contains(&t_cost)
+            || !(ARGON2_P_COST_MIN..=ARGON2_P_COST_MAX).contains(&p_cost)
+            || m_kib < p_cost.saturating_mul(8)
+        {
+            return Err(CryptoError::UnsupportedParams);
+        }
+        // Ensure the argon2 crate accepts them as well.
+        let _ = Params::new(m_kib, t_cost, p_cost, Some(KEY_LEN))
+            .map_err(|_| CryptoError::UnsupportedParams)?;
+        Ok(Self {
+            m_kib,
+            t_cost,
+            p_cost,
+        })
+    }
 }
 
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
@@ -79,17 +128,25 @@ pub fn seed_fingerprint(phrase: &str) -> Result<String, CryptoError> {
     Ok(format!("{:02x}{:02x}", digest[0], digest[1]))
 }
 
-pub fn derive_key(mnemonic: &str, salt: &[u8]) -> Result<VaultKey, CryptoError> {
+pub fn derive_key(
+    mnemonic: &str,
+    salt: &[u8],
+    params: &KdfParams,
+) -> Result<VaultKey, CryptoError> {
     validate_mnemonic(mnemonic)?;
     let normalized = Zeroizing::new(normalize_mnemonic(mnemonic));
-    derive_key_from_secret(normalized.as_bytes(), salt)
+    derive_key_from_secret(normalized.as_bytes(), salt, params)
 }
 
 /// Derive a vault key from an arbitrary secret (seed bytes or backup passphrase).
-pub fn derive_key_from_secret(secret: &[u8], salt: &[u8]) -> Result<VaultKey, CryptoError> {
-    let params = Params::new(ARGON2_M_KIB, ARGON2_T_COST, ARGON2_P_COST, Some(KEY_LEN))
-        .map_err(|_| CryptoError::Kdf)?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+pub fn derive_key_from_secret(
+    secret: &[u8],
+    salt: &[u8],
+    params: &KdfParams,
+) -> Result<VaultKey, CryptoError> {
+    let argon_params = Params::new(params.m_kib, params.t_cost, params.p_cost, Some(KEY_LEN))
+        .map_err(|_| CryptoError::UnsupportedParams)?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon_params);
     let mut key = [0u8; KEY_LEN];
     argon2
         .hash_password_into(secret, salt, &mut key)
@@ -156,7 +213,8 @@ mod tests {
     fn encrypt_decrypt_roundtrip() {
         let phrase = generate_mnemonic().unwrap();
         let salt = random_salt();
-        let key = derive_key(&phrase, &salt).unwrap();
+        let params = KdfParams::current();
+        let key = derive_key(&phrase, &salt, &params).unwrap();
         let nonce = random_nonce();
         let pt = b"hello vault";
         let ct = encrypt(&key, &nonce, pt).unwrap();
@@ -169,11 +227,52 @@ mod tests {
         let phrase = generate_mnemonic().unwrap();
         let other = generate_mnemonic().unwrap();
         let salt = random_salt();
-        let key = derive_key(&phrase, &salt).unwrap();
-        let bad = derive_key(&other, &salt).unwrap();
+        let params = KdfParams::current();
+        let key = derive_key(&phrase, &salt, &params).unwrap();
+        let bad = derive_key(&other, &salt, &params).unwrap();
         let nonce = random_nonce();
         let ct = encrypt(&key, &nonce, b"secret").unwrap();
         assert!(decrypt(&bad, &nonce, &ct).is_err());
+    }
+
+    #[test]
+    fn derive_uses_explicit_params() {
+        let phrase = generate_mnemonic().unwrap();
+        let salt = random_salt();
+        let a = KdfParams {
+            m_kib: 16,
+            t_cost: 1,
+            p_cost: 1,
+        };
+        let b = KdfParams {
+            m_kib: 32,
+            t_cost: 1,
+            p_cost: 1,
+        };
+        let ka = derive_key(&phrase, &salt, &a).unwrap();
+        let kb = derive_key(&phrase, &salt, &b).unwrap();
+        assert_ne!(ka.as_bytes(), kb.as_bytes());
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_params() {
+        assert!(matches!(
+            KdfParams::validated(4, 1, 1),
+            Err(CryptoError::UnsupportedParams)
+        ));
+        assert!(matches!(
+            KdfParams::validated(ARGON2_M_KIB_MAX + 1, 1, 1),
+            Err(CryptoError::UnsupportedParams)
+        ));
+        assert!(matches!(
+            KdfParams::validated(64, ARGON2_T_COST_MAX + 1, 1),
+            Err(CryptoError::UnsupportedParams)
+        ));
+        assert!(matches!(
+            KdfParams::validated(64, 1, ARGON2_P_COST_MAX + 1),
+            Err(CryptoError::UnsupportedParams)
+        ));
+        assert!(KdfParams::validated(ARGON2_M_KIB, ARGON2_T_COST, ARGON2_P_COST).is_ok());
     }
 
     #[test]
@@ -196,8 +295,9 @@ mod tests {
     #[test]
     fn passphrase_secret_derives_distinct_key() {
         let salt = random_salt();
-        let a = derive_key_from_secret(b"passphrase-one", &salt).unwrap();
-        let b = derive_key_from_secret(b"passphrase-two", &salt).unwrap();
+        let params = KdfParams::current();
+        let a = derive_key_from_secret(b"passphrase-one", &salt, &params).unwrap();
+        let b = derive_key_from_secret(b"passphrase-two", &salt, &params).unwrap();
         assert_ne!(a.as_bytes(), b.as_bytes());
     }
 }
