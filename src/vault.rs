@@ -10,8 +10,8 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 
 use crate::crypto::{
-    self, decrypt, derive_key, encrypt, random_nonce, random_salt, VaultKey, ARGON2_M_KIB,
-    ARGON2_P_COST, ARGON2_T_COST, NONCE_LEN, SALT_LEN,
+    self, decrypt, derive_key, encrypt, random_nonce, random_salt, KdfParams, VaultKey, NONCE_LEN,
+    SALT_LEN,
 };
 use crate::model::VaultData;
 use crate::validation::{
@@ -256,6 +256,8 @@ pub struct UnlockedVault {
     pub path: PathBuf,
     pub key: VaultKey,
     pub salt: [u8; SALT_LEN],
+    /// Argon2 params that produced `key`; written back on every persist.
+    pub kdf: KdfParams,
     pub data: VaultData,
     _lock: VaultLock,
 }
@@ -280,12 +282,14 @@ impl UnlockedVault {
         }
         ensure_secure_parent(path)?;
         let salt = random_salt();
-        let key = derive_key(mnemonic, &salt)?;
+        let kdf = KdfParams::current();
+        let key = derive_key(mnemonic, &salt, &kdf)?;
         let data = VaultData::new();
         let mut vault = Self {
             path: path.to_path_buf(),
             key,
             salt,
+            kdf,
             data,
             _lock: lock,
         };
@@ -296,10 +300,8 @@ impl UnlockedVault {
     pub fn unlock(path: &Path, mnemonic: &str) -> Result<Self, VaultError> {
         let lock = VaultLock::acquire(path)?;
         let file = VaultFile::load(path)?;
-        // Header stores Argon2 params for future flexibility; v1 always uses compile-time defaults
-        // matching what we write. Derive with stored salt.
-        let _ = (file.m_kib, file.t_cost, file.p_cost);
-        let key = derive_key(mnemonic, &file.salt)?;
+        let kdf = KdfParams::validated(file.m_kib, file.t_cost, file.p_cost)?;
+        let key = derive_key(mnemonic, &file.salt, &kdf)?;
         let plaintext = Zeroizing::new(decrypt(&key, &file.nonce, &file.ciphertext)?);
         validate_plaintext_size(plaintext.len())?;
         let data: VaultData = serde_json::from_slice(&plaintext)?;
@@ -308,6 +310,7 @@ impl UnlockedVault {
             path: path.to_path_buf(),
             key,
             salt: file.salt,
+            kdf,
             data,
             _lock: lock,
         })
@@ -323,9 +326,9 @@ impl UnlockedVault {
             path: self.path.clone(),
             salt: self.salt,
             nonce,
-            m_kib: ARGON2_M_KIB,
-            t_cost: ARGON2_T_COST,
-            p_cost: ARGON2_P_COST,
+            m_kib: self.kdf.m_kib,
+            t_cost: self.kdf.t_cost,
+            p_cost: self.kdf.p_cost,
             ciphertext,
         };
         file.save()?;
@@ -336,11 +339,71 @@ impl UnlockedVault {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::generate_mnemonic;
-    use crate::model::Entry;
+    use crate::crypto::{generate_mnemonic, KdfParams};
+    use crate::model::{Entry, VaultData};
     use chrono::Utc;
     use tempfile::tempdir;
     use uuid::Uuid;
+
+    #[test]
+    fn unlock_uses_argon2_params_from_header() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault");
+        let phrase = generate_mnemonic().unwrap();
+
+        // Write a vault with non-default (weaker) params so unlock must read the header.
+        let salt = crypto::random_salt();
+        let kdf = KdfParams {
+            m_kib: 16,
+            t_cost: 1,
+            p_cost: 1,
+        };
+        let key = crypto::derive_key(&phrase, &salt, &kdf).unwrap();
+        let plaintext = serde_json::to_vec(&VaultData::new()).unwrap();
+        let nonce = crypto::random_nonce();
+        let ciphertext = crypto::encrypt(&key, &nonce, &plaintext).unwrap();
+        VaultFile {
+            path: path.clone(),
+            salt,
+            nonce,
+            m_kib: kdf.m_kib,
+            t_cost: kdf.t_cost,
+            p_cost: kdf.p_cost,
+            ciphertext,
+        }
+        .save()
+        .unwrap();
+
+        let mut unlocked = UnlockedVault::unlock(&path, &phrase).unwrap();
+        assert_eq!(unlocked.kdf, kdf);
+
+        // Persist must keep the header params that match the derived key.
+        unlocked.persist().unwrap();
+        drop(unlocked);
+
+        let reloaded = VaultFile::load(&path).unwrap();
+        assert_eq!(reloaded.m_kib, kdf.m_kib);
+        assert_eq!(reloaded.t_cost, kdf.t_cost);
+        assert_eq!(reloaded.p_cost, kdf.p_cost);
+        UnlockedVault::unlock(&path, &phrase).unwrap();
+    }
+
+    #[test]
+    fn unlock_rejects_out_of_bounds_argon2_params() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault");
+        let phrase = generate_mnemonic().unwrap();
+        UnlockedVault::create(&path, &phrase).unwrap();
+
+        let mut file = VaultFile::load(&path).unwrap();
+        file.m_kib = crypto::ARGON2_M_KIB_MAX + 1;
+        file.save().unwrap();
+
+        assert!(matches!(
+            UnlockedVault::unlock(&path, &phrase),
+            Err(VaultError::Crypto(crypto::CryptoError::UnsupportedParams))
+        ));
+    }
 
     #[test]
     fn create_unlock_roundtrip() {

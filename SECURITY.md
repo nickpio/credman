@@ -15,7 +15,7 @@ The seed phrase and an encrypted vault together provide full access. Losing the 
 
 credman derives a 256-bit key from the normalized seed phrase and a random 16-byte salt using Argon2id. Vault JSON is encrypted and authenticated with AES-256-GCM using a fresh 12-byte nonce on every save. The salt, nonce, Argon2 parameter metadata, and ciphertext are stored in the vault file.
 
-Authenticated decryption rejects an incorrect seed and modified ciphertext. The current format uses compile-time Argon2 parameters even though those values are recorded in the header.
+Authenticated decryption rejects an incorrect seed and modified ciphertext. Unlock and backup decrypt derive with the Argon2 parameters stored in the file header (within sanity bounds), so existing vaults remain readable if future builds raise the defaults used for new files.
 
 Sensitive key, seed, clipboard, and entry buffers use `zeroize` where practical. This reduces remnants after normal drops; it does not guarantee protection from process inspection, swap, crash dumps, or a compromised operating system.
 

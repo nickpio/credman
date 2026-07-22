@@ -12,7 +12,7 @@ use zeroize::Zeroizing;
 
 use crate::crypto::{
     self, decrypt, derive_key_from_secret, encrypt, normalize_mnemonic, random_nonce, random_salt,
-    validate_mnemonic, ARGON2_M_KIB, ARGON2_P_COST, ARGON2_T_COST, NONCE_LEN, SALT_LEN,
+    validate_mnemonic, KdfParams, NONCE_LEN, SALT_LEN,
 };
 use crate::model::VaultData;
 use crate::validation::{
@@ -89,7 +89,8 @@ impl EncryptedBackup {
         validate_plaintext_size(plaintext.len())?;
         let salt = random_salt();
         let nonce = random_nonce();
-        let key = derive_key_from_secret(secret, &salt)?;
+        let kdf = KdfParams::current();
+        let key = derive_key_from_secret(secret, &salt, &kdf)?;
         let ciphertext = encrypt(&key, &nonce, &plaintext)?;
         Ok(Self {
             format: FORMAT_NAME.into(),
@@ -97,9 +98,9 @@ impl EncryptedBackup {
             secret: secret_kind,
             kdf: BackupKdf {
                 alg: "argon2id".into(),
-                m_kib: ARGON2_M_KIB,
-                t: ARGON2_T_COST,
-                p: ARGON2_P_COST,
+                m_kib: kdf.m_kib,
+                t: kdf.t_cost,
+                p: kdf.p_cost,
             },
             salt_b64: B64.encode(salt),
             nonce_b64: B64.encode(nonce),
@@ -134,7 +135,8 @@ impl EncryptedBackup {
         let nonce = decode_fixed::<NONCE_LEN>(&self.nonce_b64, "nonce")?;
         let ciphertext = B64.decode(&self.ciphertext_b64)?;
         validate_vault_file_size(ciphertext.len() as u64)?;
-        let key = derive_key_from_secret(secret, &salt)?;
+        let kdf = KdfParams::validated(self.kdf.m_kib, self.kdf.t, self.kdf.p)?;
+        let key = derive_key_from_secret(secret, &salt, &kdf)?;
         let plaintext = Zeroizing::new(decrypt(&key, &nonce, &ciphertext)?);
         validate_plaintext_size(plaintext.len())?;
         let data: VaultData = serde_json::from_slice(&plaintext)?;
@@ -161,15 +163,10 @@ impl EncryptedBackup {
                 self.kdf.alg
             )));
         }
-        // v1 always derives with compile-time defaults; reject mismatched params early.
-        if self.kdf.m_kib != ARGON2_M_KIB
-            || self.kdf.t != ARGON2_T_COST
-            || self.kdf.p != ARGON2_P_COST
-        {
-            return Err(BackupError::Invalid(
-                "unsupported Argon2 parameters".into(),
-            ));
-        }
+        // Reject out-of-bounds params early with a clear error (derive also validates).
+        KdfParams::validated(self.kdf.m_kib, self.kdf.t, self.kdf.p).map_err(|_| {
+            BackupError::Invalid("unsupported Argon2 parameters".into())
+        })?;
         Ok(())
     }
 
@@ -258,6 +255,46 @@ mod tests {
             updated_at: Utc::now(),
         });
         data
+    }
+
+    #[test]
+    fn decrypt_uses_argon2_params_from_backup() {
+        let phrase = generate_mnemonic().unwrap();
+        let data = sample_data("s3cret");
+        let mut backup = EncryptedBackup::encrypt_with_seed(&data, &phrase).unwrap();
+        // Re-encrypt under weaker stored params so decrypt must honor the header.
+        let salt = random_salt();
+        let nonce = random_nonce();
+        let kdf = KdfParams {
+            m_kib: 16,
+            t_cost: 1,
+            p_cost: 1,
+        };
+        let normalized = Zeroizing::new(normalize_mnemonic(&phrase));
+        let key = derive_key_from_secret(normalized.as_bytes(), &salt, &kdf).unwrap();
+        let plaintext = serde_json::to_vec(&data).unwrap();
+        let ciphertext = encrypt(&key, &nonce, &plaintext).unwrap();
+        backup.kdf.m_kib = kdf.m_kib;
+        backup.kdf.t = kdf.t_cost;
+        backup.kdf.p = kdf.p_cost;
+        backup.salt_b64 = B64.encode(salt);
+        backup.nonce_b64 = B64.encode(nonce);
+        backup.ciphertext_b64 = B64.encode(ciphertext);
+
+        let restored = backup.decrypt_with_seed(&phrase).unwrap();
+        assert_eq!(restored.entries[0].password, "s3cret");
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_argon2_params() {
+        let phrase = generate_mnemonic().unwrap();
+        let mut backup =
+            EncryptedBackup::encrypt_with_seed(&sample_data("x"), &phrase).unwrap();
+        backup.kdf.m_kib = crate::crypto::ARGON2_M_KIB_MAX + 1;
+        assert!(matches!(
+            backup.decrypt_with_seed(&phrase),
+            Err(BackupError::Invalid(msg)) if msg.contains("Argon2")
+        ));
     }
 
     #[test]
