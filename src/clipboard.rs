@@ -55,19 +55,33 @@ impl PendingClipboard {
     }
 }
 
+/// Spawn a helper that owns the clipboard for [`CLIPBOARD_TTL`], then clears it.
+///
+/// On X11/Wayland the selection is only served while the owning process lives, so the
+/// helper (not the short-lived parent) must set the text and keep the clipboard handle
+/// alive for the TTL.
 pub fn copy_with_helper(secret: &str) -> Result<HelperSchedule, ClipboardError> {
-    let pending = PendingClipboard::copy(secret)?;
-    Ok(match spawn_clear_helper(&pending.secret) {
-        Ok(()) => HelperSchedule::Scheduled,
-        Err(error) => HelperSchedule::Unavailable(error),
-    })
+    match spawn_clear_helper(secret) {
+        Ok(()) => Ok(HelperSchedule::Scheduled),
+        Err(error) => {
+            // Degraded: parent copies, but the selection may vanish when this process exits.
+            PendingClipboard::copy(secret)?;
+            Ok(HelperSchedule::Unavailable(error))
+        }
+    }
 }
 
 pub fn run_clear_helper() -> Result<(), ClipboardError> {
     let mut secret = Zeroizing::new(String::new());
     io::stdin().read_to_string(&mut secret)?;
+
+    let mut clipboard = arboard::Clipboard::new()?;
+    clipboard.set_text(secret.to_string())?;
+
+    // Keep `clipboard` alive so X11/Wayland selection ownership survives the wait.
     std::thread::sleep(CLIPBOARD_TTL);
-    let _ = clear_if_unchanged(&secret)?;
+
+    let _ = clear_if_unchanged_with(&mut clipboard, &secret)?;
     Ok(())
 }
 
@@ -90,6 +104,13 @@ fn spawn_clear_helper(secret: &str) -> io::Result<()> {
 
 fn clear_if_unchanged(expected: &str) -> Result<ClearOutcome, ClipboardError> {
     let mut clipboard = arboard::Clipboard::new()?;
+    clear_if_unchanged_with(&mut clipboard, expected)
+}
+
+fn clear_if_unchanged_with(
+    clipboard: &mut arboard::Clipboard,
+    expected: &str,
+) -> Result<ClearOutcome, ClipboardError> {
     let current = clipboard.get_text()?;
     if should_clear(&current, expected) {
         clipboard.set_text(String::new())?;

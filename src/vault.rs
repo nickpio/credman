@@ -101,6 +101,12 @@ fn lock_path_for(vault_path: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
+fn tmp_path_for(vault_path: &Path) -> PathBuf {
+    let mut path = vault_path.as_os_str().to_os_string();
+    path.push(".tmp");
+    PathBuf::from(path)
+}
+
 impl VaultLock {
     fn acquire(vault_path: &Path) -> Result<Self, VaultError> {
         ensure_secure_parent(vault_path)?;
@@ -211,7 +217,7 @@ impl VaultFile {
     pub fn save(&self) -> Result<(), VaultError> {
         ensure_secure_parent(&self.path)?;
         let data = self.serialize();
-        let tmp = self.path.with_extension("tmp");
+        let tmp = tmp_path_for(&self.path);
         {
             let mut options = OpenOptions::new();
             options.write(true).create(true).truncate(true);
@@ -459,6 +465,14 @@ mod tests {
         assert_eq!(
             lock_path_for(Path::new("credentials.prod")),
             PathBuf::from("credentials.prod.lock")
+        );
+    }
+
+    #[test]
+    fn tmp_path_appends_without_replacing_vault_extension() {
+        assert_eq!(
+            tmp_path_for(Path::new("credentials.prod")),
+            PathBuf::from("credentials.prod.tmp")
         );
     }
 

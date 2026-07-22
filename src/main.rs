@@ -4,6 +4,7 @@ mod clipboard;
 mod crypto;
 mod model;
 mod tui;
+mod usb;
 mod validation;
 mod vault;
 
