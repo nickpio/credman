@@ -1,0 +1,1225 @@
+{
+  "title": "Actual two-bot workflow: 16/16 checks. Shutdown fix verified separately.",
+  "participants": [
+    {
+      "id": "a",
+      "name": "Backend Engineer",
+      "role": "Real Hermes bot. Creates the account and controls its grant."
+    },
+    {
+      "id": "b",
+      "name": "Security Engineer",
+      "role": "Real Hermes bot. Uses the shared credential through private delivery."
+    }
+  ],
+  "events": [
+    {
+      "actor": "system",
+      "action": "Start",
+      "timestamp": "2026-10-25T09:43:13.597731+00:00",
+      "result": {
+        "sequence": 1,
+        "synthetic_only": true,
+        "same_uid_isolation": false
+      }
+    },
+    {
+      "actor": "system",
+      "action": "Ready",
+      "timestamp": "2026-10-25T09:43:16.432574+00:00",
+      "result": {
+        "sequence": 2,
+        "seconds_left": 237,
+        "task_expires_at": 1792921633
+      }
+    },
+    {
+      "actor": "a",
+      "action": "Create synthetic credential and register privately",
+      "timestamp": "2026-10-25T09:43:41.127641+00:00",
+      "result": {
+        "sequence": 3,
+        "ok": true,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "revision": 1,
+        "delivery": "Accepted",
+        "attempt": "3fd60dfd-5f44-401f-8a7d-8367e0adc325",
+        "vault_state": {
+          "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+          "revision": 1,
+          "delivery": "Accepted"
+        }
+      }
+    },
+    {
+      "actor": "b",
+      "action": "Login denied before sharing",
+      "timestamp": "2026-10-25T09:44:09.982170+00:00",
+      "result": {
+        "sequence": 4,
+        "ok": false,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "request": "4bc42d01-d053-4f82-b5b3-7458042152b4",
+        "retry": false,
+        "error": "access denied"
+      }
+    },
+    {
+      "actor": "b",
+      "action": "Password read denied before sharing",
+      "timestamp": "2026-10-25T09:44:10.052616+00:00",
+      "result": {
+        "sequence": 5,
+        "ok": false,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "error": "access denied"
+      }
+    },
+    {
+      "actor": "a",
+      "action": "Share private-use access with Agent B",
+      "timestamp": "2026-10-25T09:44:20.390645+00:00",
+      "result": {
+        "sequence": 6,
+        "ok": true,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "revision": 2,
+        "grant": "135be0a9-2d6f-4cb6-b92a-b585ec01518c",
+        "vault_state": {
+          "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+          "revision": 2,
+          "grant": "135be0a9-2d6f-4cb6-b92a-b585ec01518c"
+        }
+      }
+    },
+    {
+      "actor": "b",
+      "action": "Login accepted without returning credentials",
+      "timestamp": "2026-10-25T09:44:32.517701+00:00",
+      "result": {
+        "sequence": 7,
+        "ok": true,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "delivery": "Accepted",
+        "request": "dfec99ce-37dc-4fb8-ae59-4dacce5a1240",
+        "attempt": "9f8d8261-a07d-4c47-bf7f-cb1a8ea10183",
+        "retry": false
+      }
+    },
+    {
+      "actor": "a",
+      "action": "Revoke Agent B’s grant",
+      "timestamp": "2026-10-25T09:44:42.415616+00:00",
+      "result": {
+        "sequence": 8,
+        "ok": true,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "revision": 3,
+        "grant": "135be0a9-2d6f-4cb6-b92a-b585ec01518c",
+        "revoked": true,
+        "vault_state": {
+          "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+          "revision": 3,
+          "grant": "135be0a9-2d6f-4cb6-b92a-b585ec01518c",
+          "revoked": true
+        }
+      }
+    },
+    {
+      "actor": "b",
+      "action": "Previously successful request denied after revocation",
+      "timestamp": "2026-10-25T09:44:54.765161+00:00",
+      "result": {
+        "sequence": 9,
+        "ok": false,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "request": "dfec99ce-37dc-4fb8-ae59-4dacce5a1240",
+        "retry": true,
+        "error": "access denied"
+      }
+    },
+    {
+      "actor": "b",
+      "action": "Fresh login request denied after revocation",
+      "timestamp": "2026-10-25T09:44:54.838490+00:00",
+      "result": {
+        "sequence": 10,
+        "ok": false,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "request": "412b3943-09e9-4918-a540-97a87f90aaa5",
+        "retry": false,
+        "error": "access denied"
+      }
+    },
+    {
+      "actor": "human",
+      "action": "Status",
+      "timestamp": "2026-10-25T09:45:02.691782+00:00",
+      "result": {
+        "sequence": 11,
+        "ok": true,
+        "complete": true,
+        "passed": 16,
+        "total": 16,
+        "stopping": false,
+        "policy_failure": false,
+        "checks": {
+          "registered": true,
+          "before_grant_denied": true,
+          "read_denied": true,
+          "shared": true,
+          "granted_login": true,
+          "revoked": true,
+          "cached_after_revoke_denied": true,
+          "fresh_after_revoke_denied": true,
+          "sequence_verified": true,
+          "single_account": true,
+          "single_registration": true,
+          "serialized_canary_absent": true,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": true,
+          "app_verifier_canary_absent": true,
+          "successful_retry_request_unchanged": true
+        },
+        "task_expires_at": 1792921633,
+        "final": false,
+        "application_accounts": 1,
+        "application_registrations": 1
+      }
+    },
+    {
+      "actor": "human",
+      "action": "Finish",
+      "timestamp": "2026-10-25T09:45:02.756354+00:00",
+      "result": {
+        "sequence": 12,
+        "ok": true,
+        "complete": true,
+        "passed": 16,
+        "total": 16,
+        "stopping": true,
+        "policy_failure": false,
+        "checks": {
+          "registered": true,
+          "before_grant_denied": true,
+          "read_denied": true,
+          "shared": true,
+          "granted_login": true,
+          "revoked": true,
+          "cached_after_revoke_denied": true,
+          "fresh_after_revoke_denied": true,
+          "sequence_verified": true,
+          "single_account": true,
+          "single_registration": true,
+          "serialized_canary_absent": true,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": true,
+          "app_verifier_canary_absent": true,
+          "successful_retry_request_unchanged": true
+        },
+        "task_expires_at": 1792921633,
+        "final": false,
+        "application_accounts": 1,
+        "application_registrations": 1
+      }
+    },
+    {
+      "actor": "system",
+      "action": "Original teardown failed: broker terminated before clean exit",
+      "timestamp": "2026-10-25T09:45:02.762455+00:00",
+      "result": {
+        "sequence": 13,
+        "broker_exit": -15,
+        "application_exit": -15,
+        "complete": false,
+        "passed": 16,
+        "total": 16,
+        "policy_failure": false,
+        "checks": {
+          "registered": true,
+          "before_grant_denied": true,
+          "read_denied": true,
+          "shared": true,
+          "granted_login": true,
+          "revoked": true,
+          "cached_after_revoke_denied": true,
+          "fresh_after_revoke_denied": true,
+          "sequence_verified": true,
+          "single_account": true,
+          "single_registration": true,
+          "serialized_canary_absent": true,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": true,
+          "app_verifier_canary_absent": true,
+          "successful_retry_request_unchanged": true
+        },
+        "final": true,
+        "application_accounts": 1,
+        "application_registrations": 1
+      }
+    },
+    {
+      "actor": "human",
+      "action": "Shutdown fix verified separately: native broker exited cleanly",
+      "timestamp": "2026-10-25T09:52:32.695030+00:00",
+      "result": {
+        "purpose": "Lifecycle-only check. Agent workflow intentionally not repeated.",
+        "broker_exit": 0,
+        "application_exit": -15,
+        "finished_explicitly": true,
+        "workflow_complete_in_this_probe": false,
+        "full_probe_final": {
+          "ok": false,
+          "final": true,
+          "complete": false,
+          "finished_explicitly": true,
+          "policy_failure": false,
+          "checks": {
+            "registered": false,
+            "before_grant_denied": false,
+            "read_denied": false,
+            "shared": false,
+            "granted_login": false,
+            "revoked": false,
+            "cached_after_revoke_denied": false,
+            "fresh_after_revoke_denied": false,
+            "sequence_verified": false,
+            "single_account": false,
+            "single_registration": false,
+            "serialized_canary_absent": false,
+            "child_output_suppressed": true,
+            "encrypted_image_canary_absent": false,
+            "app_verifier_canary_absent": false,
+            "successful_retry_request_unchanged": false
+          },
+          "total": 16,
+          "passed": 1,
+          "application_accounts": 0,
+          "application_registrations": 0,
+          "broker_exit": 0,
+          "application_exit": -15,
+          "task_expires_at": 1792922185,
+          "stdout_stderr": "suppressed_devnull_not_measured"
+        }
+      }
+    }
+  ],
+  "checks": {
+    "workflow_actions_observed": 8,
+    "workflow_assertions_passed": 16,
+    "workflow_assertions_total": 16,
+    "workflow_checks": {
+      "registered": true,
+      "before_grant_denied": true,
+      "read_denied": true,
+      "shared": true,
+      "granted_login": true,
+      "revoked": true,
+      "cached_after_revoke_denied": true,
+      "fresh_after_revoke_denied": true,
+      "sequence_verified": true,
+      "single_account": true,
+      "single_registration": true,
+      "serialized_canary_absent": true,
+      "child_output_suppressed": true,
+      "encrypted_image_canary_absent": true,
+      "app_verifier_canary_absent": true,
+      "successful_retry_request_unchanged": true
+    },
+    "actual_application_accounts": 1,
+    "actual_application_registrations": 1,
+    "cached_retry_preserved_successful_request": true,
+    "fresh_retry_used_different_request": true,
+    "post_revoke_denials_before_expiry": true,
+    "original_session_clean_teardown": false,
+    "corrected_shutdown_native_exit": 0,
+    "auth_workflow_repeated_after_teardown_fix": false
+  },
+  "provenance": {
+    "method": "Actual A/B bot tool/message rows were read narrowly and read-only, sanitized and matched to all eight application command responses. Original failed teardown is retained unchanged. Only three lines of teardown changed; mechanical reverse-diff reproduces the reviewed workflow helper hash. A separate real native lifecycle check verifies that fix. No full test suite was repeated.",
+    "workflow_run": "live-clean",
+    "workflow_source_sha256": {
+      "Cargo.toml": "80aba008d8145f9723efcdf897c1e82dc63d3269a1b79746f26a504a45382b9f",
+      "Cargo.lock": "a021e6ad805ab1317a0fc445bc68dbb1bdb9c452742e07aa854b07d01a67d82e",
+      "src/agent/mod.rs": "6551fa628028b7bbc35a5e661ebbaaa62f69edfe66964fb73dfd4105d01b66f0",
+      "src/agent/provenance.rs": "890351d4204ee44fd0e7204cc4515274d58aa58f69ea04035ece1ec7ba4b4863",
+      "src/agent/snapshot.rs": "1774b527adb38ff181ab85c3fa1b6b91d4eee1709758b22daa12295092bfacf9",
+      "src/agent/storage.rs": "3e573582305c6de3d1256b6c233b4912ce3030db0b066759e38ce444746e44a8",
+      "src/agent/storage/backup.rs": "c8cf435239d38127d37b8e62da61d28cc31c5f06df74775b6ee6777334889cbe",
+      "src/agent/storage/backup/tests.rs": "315f827e295147597af4e326a47d7002741ac92d0a780e54b08b6bd6b57180f5",
+      "src/agent/storage/copies.rs": "8323e18c123547c8d579dd250da244e324c1b5545dc8696878e689feae86f517",
+      "src/agent/storage/copy_tests.rs": "e3140f1a2b683f541d888c2ed793e5b8ad6cab550d23a9a7cc57814302e54aa3",
+      "src/agent/storage/final_review_tests.rs": "436df1fdedd6261a662fa4912068eb7d497831ec339d9263d3f861dae6c7cb0f",
+      "src/agent/storage/recovery.rs": "af90b1d0f5f92d7726b30c306540a9c8869584be44429773b3c39efcb29c17b4",
+      "src/agent/storage/recovery_tests.rs": "bb320e740d0d73ba346a37ca79a3889d3268e76a59c314f471f216f4cc4b527f",
+      "src/agent/storage/reviewed_repairs_tests.rs": "7fbfb8308386dd6206d72c4f2d5db3b8383c5412e0c4e25df97019943a0eba70",
+      "src/agent/storage/tests.rs": "d947483b16d42b832a5445dd1f1a11a19c9a9d2437724d66258d2d893d137ba0",
+      "src/agent/storage/workflow.rs": "9249b94e474a8688d52cd6b51d76b7dc4b12042393f1dd625ccabd7a9258467d",
+      "src/agent/storage/workflow_tests.rs": "ad7da5c7a8741e7e8e552f1a8d8959a9e11593fe57ad319e191c1a38daaad69a",
+      "src/agent/tests.rs": "08e6ae92034517c48b202e6de239377a09829f956baefd5042cb3e3fb6a779e6",
+      "src/agent_adapter.rs": "9d13b168d0a17b529020960d0b6053d00a381210ca3ee1ce736ac2cc6c196216",
+      "src/agent_admin.rs": "2763fbeb07f00c668193b3210e055369c4bc34f75b58e6f3ef0ca51838173a45",
+      "src/agent_broker.rs": "06a7d5073e37cf43d51ba77aadd40832801b23fdbd31818a93d0070282fe61b9",
+      "src/agent_ipc.rs": "2eaf6c582277e7273fa5bca881378dcbb2e1b7c8e0854c2f5d9500d1b3a6ea1e",
+      "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+      "src/cli.rs": "f52c52f2b1202cfe40bbac1521a4361304fa24e4b5bc66f2199989d57b07a965",
+      "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+      "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+      "src/main.rs": "45966344a91b700569c4c6d63c3424c3b3d3c72b7105d90212c333d4efa25441",
+      "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+      "src/tui/app.rs": "a35bd377043fed9a17423ee5bdf1545663ee56b792c4d6a76a5c1a17ea24fe61",
+      "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+      "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+      "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+      "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+      "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+      "src/vault.rs": "ae71b0948873d7bfa4fbda83032d1da47e37774f13c7d4e574d51c17168fe5ac",
+      "tests/cli_storage_regression.py": "eb9c3be3eeb540e4c92b282805308390d6d10dc24d3383ac02ea43ef6b08a668",
+      "tests/agent_program_regression.py": "9c3461ac6281bcc9da889291e9925854fcc5e833e4c917d8e0e8b9ac4dc1824b",
+      "examples/two_agent_demo.py": "5227457aea3ccdc83743e63ba5dc8eaed82f05b084625d0b4774d1ca4cf9a462",
+      "tests/test_fake_login_app.py": "e1a9741322412be7146baceffa429cdb8b6765e1e3c8236f60a306c1c9885334",
+      "tests/fake_login_app.py": "c08c67db44751837fc4e7d565808f561024234884f66b397a43ae90897ad5759",
+      "tests/test_workload_launcher.py": "32a741e2a829aa736319e5e9777aa968400dd3ecaa72147c1a8b470b20943cd9",
+      "tests/workload_launcher.py": "ea5406d696abb54653f0872c75382e3a2a3d4965c3eafc7043a8210c6d8b3c51"
+    },
+    "workflow_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T094313437152Z-two-agent-demo.json",
+    "workflow_receipt_exit": 1,
+    "workflow_final": {
+      "ok": false,
+      "final": true,
+      "complete": false,
+      "finished_explicitly": true,
+      "policy_failure": false,
+      "checks": {
+        "registered": true,
+        "before_grant_denied": true,
+        "read_denied": true,
+        "shared": true,
+        "granted_login": true,
+        "revoked": true,
+        "cached_after_revoke_denied": true,
+        "fresh_after_revoke_denied": true,
+        "sequence_verified": true,
+        "single_account": true,
+        "single_registration": true,
+        "serialized_canary_absent": true,
+        "child_output_suppressed": true,
+        "encrypted_image_canary_absent": true,
+        "app_verifier_canary_absent": true,
+        "successful_retry_request_unchanged": true
+      },
+      "total": 16,
+      "passed": 16,
+      "application_accounts": 1,
+      "application_registrations": 1,
+      "broker_exit": -15,
+      "application_exit": -15,
+      "task_expires_at": 1792921633,
+      "stdout_stderr": "suppressed_devnull_not_measured"
+    },
+    "raw_workflow_events": [
+      {
+        "sequence": 1,
+        "time": 1792921393.5977314,
+        "event": "start",
+        "synthetic_only": true,
+        "same_uid_isolation": false
+      },
+      {
+        "sequence": 2,
+        "time": 1792921396.4325743,
+        "event": "ready",
+        "seconds_left": 237,
+        "task_expires_at": 1792921633
+      },
+      {
+        "sequence": 3,
+        "time": 1792921421.1276412,
+        "event": "command",
+        "role": "A",
+        "operation": "create-register",
+        "ok": true,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "revision": 1,
+        "delivery": "Accepted",
+        "attempt": "3fd60dfd-5f44-401f-8a7d-8367e0adc325"
+      },
+      {
+        "sequence": 4,
+        "time": 1792921449.98217,
+        "event": "command",
+        "role": "B",
+        "operation": "login",
+        "ok": false,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "request": "4bc42d01-d053-4f82-b5b3-7458042152b4",
+        "retry": false,
+        "error": "access denied"
+      },
+      {
+        "sequence": 5,
+        "time": 1792921450.0526161,
+        "event": "command",
+        "role": "B",
+        "operation": "read",
+        "ok": false,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "error": "access denied"
+      },
+      {
+        "sequence": 6,
+        "time": 1792921460.3906453,
+        "event": "command",
+        "role": "A",
+        "operation": "share",
+        "ok": true,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "revision": 2,
+        "grant": "135be0a9-2d6f-4cb6-b92a-b585ec01518c"
+      },
+      {
+        "sequence": 7,
+        "time": 1792921472.5177007,
+        "event": "command",
+        "role": "B",
+        "operation": "login",
+        "ok": true,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "delivery": "Accepted",
+        "request": "dfec99ce-37dc-4fb8-ae59-4dacce5a1240",
+        "attempt": "9f8d8261-a07d-4c47-bf7f-cb1a8ea10183",
+        "retry": false
+      },
+      {
+        "sequence": 8,
+        "time": 1792921482.4156158,
+        "event": "command",
+        "role": "A",
+        "operation": "revoke",
+        "ok": true,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "revision": 3,
+        "grant": "135be0a9-2d6f-4cb6-b92a-b585ec01518c",
+        "revoked": true
+      },
+      {
+        "sequence": 9,
+        "time": 1792921494.7651613,
+        "event": "command",
+        "role": "B",
+        "operation": "retry-login",
+        "ok": false,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "request": "dfec99ce-37dc-4fb8-ae59-4dacce5a1240",
+        "retry": true,
+        "error": "access denied"
+      },
+      {
+        "sequence": 10,
+        "time": 1792921494.8384898,
+        "event": "command",
+        "role": "B",
+        "operation": "login",
+        "ok": false,
+        "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+        "request": "412b3943-09e9-4918-a540-97a87f90aaa5",
+        "retry": false,
+        "error": "access denied"
+      },
+      {
+        "sequence": 11,
+        "time": 1792921502.6917815,
+        "event": "command",
+        "role": "control",
+        "operation": "status",
+        "ok": true,
+        "complete": true,
+        "passed": 16,
+        "total": 16,
+        "stopping": false,
+        "policy_failure": false,
+        "checks": {
+          "registered": true,
+          "before_grant_denied": true,
+          "read_denied": true,
+          "shared": true,
+          "granted_login": true,
+          "revoked": true,
+          "cached_after_revoke_denied": true,
+          "fresh_after_revoke_denied": true,
+          "sequence_verified": true,
+          "single_account": true,
+          "single_registration": true,
+          "serialized_canary_absent": true,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": true,
+          "app_verifier_canary_absent": true,
+          "successful_retry_request_unchanged": true
+        },
+        "task_expires_at": 1792921633,
+        "final": false,
+        "application_accounts": 1,
+        "application_registrations": 1
+      },
+      {
+        "sequence": 12,
+        "time": 1792921502.7563536,
+        "event": "command",
+        "role": "control",
+        "operation": "finish",
+        "ok": true,
+        "complete": true,
+        "passed": 16,
+        "total": 16,
+        "stopping": true,
+        "policy_failure": false,
+        "checks": {
+          "registered": true,
+          "before_grant_denied": true,
+          "read_denied": true,
+          "shared": true,
+          "granted_login": true,
+          "revoked": true,
+          "cached_after_revoke_denied": true,
+          "fresh_after_revoke_denied": true,
+          "sequence_verified": true,
+          "single_account": true,
+          "single_registration": true,
+          "serialized_canary_absent": true,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": true,
+          "app_verifier_canary_absent": true,
+          "successful_retry_request_unchanged": true
+        },
+        "task_expires_at": 1792921633,
+        "final": false,
+        "application_accounts": 1,
+        "application_registrations": 1
+      },
+      {
+        "sequence": 13,
+        "time": 1792921502.7624552,
+        "event": "stop",
+        "broker_exit": -15,
+        "application_exit": -15,
+        "complete": false,
+        "passed": 16,
+        "total": 16,
+        "policy_failure": false,
+        "checks": {
+          "registered": true,
+          "before_grant_denied": true,
+          "read_denied": true,
+          "shared": true,
+          "granted_login": true,
+          "revoked": true,
+          "cached_after_revoke_denied": true,
+          "fresh_after_revoke_denied": true,
+          "sequence_verified": true,
+          "single_account": true,
+          "single_registration": true,
+          "serialized_canary_absent": true,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": true,
+          "app_verifier_canary_absent": true,
+          "successful_retry_request_unchanged": true
+        },
+        "final": true,
+        "application_accounts": 1,
+        "application_registrations": 1
+      }
+    ],
+    "current_helper_sha256": "645bb4b6bb3f9e45dc7f62f14f10a1f272c5eb1fe1d02b51a070acb89bd862df",
+    "current_helper_change": "Wait up to two seconds after exact native shutdown ACK before existing termination fallback. No authorization/action changes.",
+    "cli_artifact": {
+      "cargo_executable": "/target/debug/credman",
+      "executed_snapshot": "/repo/.verified-bin/credman",
+      "sha256": "a84dc7014b546e16c7f3e35f6bc249808dab743cb59c445454318222aa8ad968",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 2,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    },
+    "lifecycle_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T095225325666Z-two-agent-demo.json",
+    "lifecycle_receipt_exit": 1,
+    "lifecycle_expected_exit": 1,
+    "lifecycle_final": {
+      "ok": false,
+      "final": true,
+      "complete": false,
+      "finished_explicitly": true,
+      "policy_failure": false,
+      "checks": {
+        "registered": false,
+        "before_grant_denied": false,
+        "read_denied": false,
+        "shared": false,
+        "granted_login": false,
+        "revoked": false,
+        "cached_after_revoke_denied": false,
+        "fresh_after_revoke_denied": false,
+        "sequence_verified": false,
+        "single_account": false,
+        "single_registration": false,
+        "serialized_canary_absent": false,
+        "child_output_suppressed": true,
+        "encrypted_image_canary_absent": false,
+        "app_verifier_canary_absent": false,
+        "successful_retry_request_unchanged": false
+      },
+      "total": 16,
+      "passed": 1,
+      "application_accounts": 0,
+      "application_registrations": 0,
+      "broker_exit": 0,
+      "application_exit": -15,
+      "task_expires_at": 1792922185,
+      "stdout_stderr": "suppressed_devnull_not_measured"
+    },
+    "lifecycle_raw_events": [
+      {
+        "sequence": 1,
+        "time": 1792921945.4755905,
+        "event": "start",
+        "synthetic_only": true,
+        "same_uid_isolation": false
+      },
+      {
+        "sequence": 2,
+        "time": 1792921948.3950233,
+        "event": "ready",
+        "seconds_left": 237,
+        "task_expires_at": 1792922185
+      },
+      {
+        "sequence": 3,
+        "time": 1792921952.688858,
+        "event": "command",
+        "role": "control",
+        "operation": "finish",
+        "ok": true,
+        "complete": false,
+        "passed": 1,
+        "total": 16,
+        "stopping": true,
+        "policy_failure": false,
+        "checks": {
+          "registered": false,
+          "before_grant_denied": false,
+          "read_denied": false,
+          "shared": false,
+          "granted_login": false,
+          "revoked": false,
+          "cached_after_revoke_denied": false,
+          "fresh_after_revoke_denied": false,
+          "sequence_verified": false,
+          "single_account": false,
+          "single_registration": false,
+          "serialized_canary_absent": false,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": false,
+          "app_verifier_canary_absent": false,
+          "successful_retry_request_unchanged": false
+        },
+        "task_expires_at": 1792922185,
+        "final": false,
+        "application_accounts": 0,
+        "application_registrations": 0
+      },
+      {
+        "sequence": 4,
+        "time": 1792921952.6950302,
+        "event": "stop",
+        "broker_exit": 0,
+        "application_exit": -15,
+        "complete": false,
+        "passed": 1,
+        "total": 16,
+        "policy_failure": false,
+        "checks": {
+          "registered": false,
+          "before_grant_denied": false,
+          "read_denied": false,
+          "shared": false,
+          "granted_login": false,
+          "revoked": false,
+          "cached_after_revoke_denied": false,
+          "fresh_after_revoke_denied": false,
+          "sequence_verified": false,
+          "single_account": false,
+          "single_registration": false,
+          "serialized_canary_absent": false,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": false,
+          "app_verifier_canary_absent": false,
+          "successful_retry_request_unchanged": false
+        },
+        "final": true,
+        "application_accounts": 0,
+        "application_registrations": 0
+      }
+    ],
+    "actor_tool_message_lineage": [
+      {
+        "profile": "backend-engineer",
+        "session_id": "local-a43e67316a52edba938cdf1cb012811061f378d759e48dcd9979c119597568fd",
+        "assistant_row_id": 567,
+        "timestamp": 1792921420.8743622,
+        "tool": "terminal",
+        "tool_call_id": "call_85e4280abc88493ca56551ac21aee655",
+        "result_row_id": 568,
+        "operations_mentioned": [
+          "create-register"
+        ],
+        "exit_code": 0,
+        "client_responses": [
+          {
+            "ok": true,
+            "operation": "create-register",
+            "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+            "attempt": "3fd60dfd-5f44-401f-8a7d-8367e0adc325",
+            "revision": 1,
+            "delivery": "Accepted"
+          }
+        ]
+      },
+      {
+        "profile": "backend-engineer",
+        "session_id": "local-a43e67316a52edba938cdf1cb012811061f378d759e48dcd9979c119597568fd",
+        "assistant_row_id": 569,
+        "timestamp": 1792921426.5502334,
+        "tool": "message_agent",
+        "tool_call_id": "call_fc739c0343fa47c9b7f0d3797e5101c1",
+        "result_row_id": 570,
+        "target": "security-engineer",
+        "opaque_references": [
+          "228e9a3f-4565-4fc0-9a1f-2be65a15fa64"
+        ]
+      },
+      {
+        "profile": "security-engineer",
+        "session_id": "local-3459366142c01dfafa2825efadd656b8757884742dea50e4ebcb1133be9e3805",
+        "assistant_row_id": 503,
+        "timestamp": 1792921449.7639902,
+        "tool": "terminal",
+        "tool_call_id": "call_c9d15593155343759028221b9ec383de",
+        "result_row_id": 504,
+        "operations_mentioned": [
+          "login",
+          "read"
+        ],
+        "exit_code": 0,
+        "client_responses": [
+          {
+            "ok": false,
+            "operation": "login",
+            "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+            "request": "4bc42d01-d053-4f82-b5b3-7458042152b4",
+            "retry": false,
+            "error": "access denied"
+          },
+          {
+            "ok": false,
+            "operation": "read",
+            "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+            "error": "access denied"
+          }
+        ]
+      },
+      {
+        "profile": "security-engineer",
+        "session_id": "local-3459366142c01dfafa2825efadd656b8757884742dea50e4ebcb1133be9e3805",
+        "assistant_row_id": 505,
+        "timestamp": 1792921456.1638165,
+        "tool": "message_agent",
+        "tool_call_id": "call_0bcea2e0086c48a4b7ed3ab7f98dd507",
+        "result_row_id": 506,
+        "target": "backend-engineer",
+        "opaque_references": [
+          "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+          "4bc42d01-d053-4f82-b5b3-7458042152b4"
+        ]
+      },
+      {
+        "profile": "backend-engineer",
+        "session_id": "local-a43e67316a52edba938cdf1cb012811061f378d759e48dcd9979c119597568fd",
+        "assistant_row_id": 575,
+        "timestamp": 1792921460.2485404,
+        "tool": "terminal",
+        "tool_call_id": "call_7ed74d8f26134a43a0a228b5744086ca",
+        "result_row_id": 576,
+        "operations_mentioned": [
+          "share"
+        ],
+        "exit_code": 0,
+        "client_responses": [
+          {
+            "ok": true,
+            "operation": "share",
+            "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+            "grant": "135be0a9-2d6f-4cb6-b92a-b585ec01518c",
+            "revision": 2
+          }
+        ]
+      },
+      {
+        "profile": "backend-engineer",
+        "session_id": "local-a43e67316a52edba938cdf1cb012811061f378d759e48dcd9979c119597568fd",
+        "assistant_row_id": 577,
+        "timestamp": 1792921467.5972052,
+        "tool": "message_agent",
+        "tool_call_id": "call_b34002a3a04b4cd89e5ba48a2ab4239f",
+        "result_row_id": 578,
+        "target": "security-engineer",
+        "opaque_references": [
+          "135be0a9-2d6f-4cb6-b92a-b585ec01518c",
+          "228e9a3f-4565-4fc0-9a1f-2be65a15fa64"
+        ]
+      },
+      {
+        "profile": "security-engineer",
+        "session_id": "local-3459366142c01dfafa2825efadd656b8757884742dea50e4ebcb1133be9e3805",
+        "assistant_row_id": 509,
+        "timestamp": 1792921472.3543897,
+        "tool": "terminal",
+        "tool_call_id": "call_8167a9cb590a44829ca6ec127d169a6b",
+        "result_row_id": 510,
+        "operations_mentioned": [
+          "login"
+        ],
+        "exit_code": 0,
+        "client_responses": [
+          {
+            "ok": true,
+            "operation": "login",
+            "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+            "request": "dfec99ce-37dc-4fb8-ae59-4dacce5a1240",
+            "attempt": "9f8d8261-a07d-4c47-bf7f-cb1a8ea10183",
+            "retry": false,
+            "delivery": "Accepted"
+          }
+        ]
+      },
+      {
+        "profile": "security-engineer",
+        "session_id": "local-3459366142c01dfafa2825efadd656b8757884742dea50e4ebcb1133be9e3805",
+        "assistant_row_id": 511,
+        "timestamp": 1792921478.3128068,
+        "tool": "message_agent",
+        "tool_call_id": "call_6b75716a426e45d8a7e687b682804ece",
+        "result_row_id": 512,
+        "target": "backend-engineer",
+        "opaque_references": [
+          "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+          "9f8d8261-a07d-4c47-bf7f-cb1a8ea10183",
+          "dfec99ce-37dc-4fb8-ae59-4dacce5a1240"
+        ]
+      },
+      {
+        "profile": "backend-engineer",
+        "session_id": "local-a43e67316a52edba938cdf1cb012811061f378d759e48dcd9979c119597568fd",
+        "assistant_row_id": 581,
+        "timestamp": 1792921482.2735202,
+        "tool": "terminal",
+        "tool_call_id": "call_fe7a0196260a47e9ba354d39cfbec041",
+        "result_row_id": 582,
+        "operations_mentioned": [
+          "revoke"
+        ],
+        "exit_code": 0,
+        "client_responses": [
+          {
+            "ok": true,
+            "operation": "revoke",
+            "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+            "grant": "135be0a9-2d6f-4cb6-b92a-b585ec01518c",
+            "revision": 3,
+            "revoked": true
+          }
+        ]
+      },
+      {
+        "profile": "backend-engineer",
+        "session_id": "local-a43e67316a52edba938cdf1cb012811061f378d759e48dcd9979c119597568fd",
+        "assistant_row_id": 583,
+        "timestamp": 1792921488.1568458,
+        "tool": "message_agent",
+        "tool_call_id": "call_8d84abd14c0142ffbc7e459b57557582",
+        "result_row_id": 584,
+        "target": "security-engineer",
+        "opaque_references": [
+          "135be0a9-2d6f-4cb6-b92a-b585ec01518c",
+          "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+          "dfec99ce-37dc-4fb8-ae59-4dacce5a1240"
+        ]
+      },
+      {
+        "profile": "security-engineer",
+        "session_id": "local-3459366142c01dfafa2825efadd656b8757884742dea50e4ebcb1133be9e3805",
+        "assistant_row_id": 517,
+        "timestamp": 1792921494.6199617,
+        "tool": "terminal",
+        "tool_call_id": "call_6e9ecb20236a4c898d9d9dfa8e220b72",
+        "result_row_id": 518,
+        "operations_mentioned": [
+          "login",
+          "retry-login",
+          "revoke"
+        ],
+        "exit_code": 0,
+        "client_responses": [
+          {
+            "ok": false,
+            "operation": "retry-login",
+            "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+            "request": "dfec99ce-37dc-4fb8-ae59-4dacce5a1240",
+            "retry": true,
+            "error": "access denied"
+          },
+          {
+            "ok": false,
+            "operation": "login",
+            "record": "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+            "request": "412b3943-09e9-4918-a540-97a87f90aaa5",
+            "retry": false,
+            "error": "access denied"
+          }
+        ]
+      },
+      {
+        "profile": "security-engineer",
+        "session_id": "local-3459366142c01dfafa2825efadd656b8757884742dea50e4ebcb1133be9e3805",
+        "assistant_row_id": 521,
+        "timestamp": 1792921508.709234,
+        "tool": "message_agent",
+        "tool_call_id": "call_3921ec6291db46ed82e36bce6e2057e6",
+        "result_row_id": 522,
+        "target": "backend-engineer",
+        "opaque_references": [
+          "228e9a3f-4565-4fc0-9a1f-2be65a15fa64",
+          "412b3943-09e9-4918-a540-97a87f90aaa5",
+          "dfec99ce-37dc-4fb8-ae59-4dacce5a1240"
+        ]
+      }
+    ],
+    "captured_fixture_file_sha256": {
+      "two-agent-live-093128/application/accounts.json": "e6ae8a1964b9a0913e04668705c0a79be120fa4167c9480cfbcff82d1a38a16c",
+      "two-agent-live-093128/events.jsonl": "84937cf9ca3231deaa53e3462b97c376cd0ddff947a5fa7a13e314df1df4f44e",
+      "two-agent-live-093128/final.json": "3ab930b1ceefd3c59cb94f9fb533a4127edf9cd992ed320c68bd0fbf9b652984",
+      "two-agent-live-093128/ready.json": "bbd54dbb87752f98b2a40b01c3b95fec399823bfb0a47beb5cb1065a2bffec9e",
+      "two-agent-live-093128/vault/owner.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "two-agent-live-093128/vault/state.v2": "691fd73ac8be9c7b53e4cb955d2a62219a4a805fa1f48c3fb48a3498a7e2010d",
+      "two-agent-live-clean/application/accounts.json": "eae5d64571ded10212a430e703c82c5d71b1642433f460e6242c6c75e6567f7a",
+      "two-agent-live-clean/events.jsonl": "55cfb2564767eb1ffdb9dd6afbf2d77ff98f268254245b8b5708572173fc0cce",
+      "two-agent-live-clean/final.json": "c6fec087027d93c1d30f77680b8b41effa5929b171448b60f55bc5d6de549f7d",
+      "two-agent-live-clean/ready.json": "d1a5d29b56b9a79fe2e03869da7594ef8ae340129eca8930f381db64dc39fc3d",
+      "two-agent-live-clean/vault/owner.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "two-agent-live-clean/vault/state.v2": "a17cb4e730445b16402468db60cd951983c1488ddfe29d02fbff0ce16cd3011c",
+      "two-agent-exit-check/events.jsonl": "b8fcdbfc8ae700eb51a85da62f388259c5182e1db8a6622bc12512b16d34cab1",
+      "two-agent-exit-check/final.json": "fb0c0d630cbabe0d53c07e4cf4072060fedd6da701d692e9073e5b7022922a5f",
+      "two-agent-exit-check/ready.json": "28c911983b1b689bf81b2d921aa13f1a404ba24e62866fe2a00d2cea6ec1a70f",
+      "two-agent-exit-check/vault/owner.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "two-agent-exit-check/vault/state.v2": "c6dcbb06799cb6996383f7d404d85099c22d89d5842996266cbf57014ec7a5c4"
+    },
+    "earlier_attempt": {
+      "run": "live-093128",
+      "status": "Incomplete timeout before final retries",
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T093213955136Z-two-agent-demo.json",
+      "final": {
+        "ok": false,
+        "final": true,
+        "complete": false,
+        "finished_explicitly": false,
+        "policy_failure": false,
+        "checks": {
+          "registered": true,
+          "before_grant_denied": true,
+          "read_denied": true,
+          "shared": true,
+          "granted_login": true,
+          "revoked": true,
+          "cached_after_revoke_denied": false,
+          "fresh_after_revoke_denied": false,
+          "sequence_verified": false,
+          "single_account": true,
+          "single_registration": true,
+          "serialized_canary_absent": true,
+          "child_output_suppressed": true,
+          "encrypted_image_canary_absent": true,
+          "app_verifier_canary_absent": true,
+          "successful_retry_request_unchanged": false
+        },
+        "total": 16,
+        "passed": 12,
+        "application_accounts": 1,
+        "application_registrations": 1,
+        "broker_exit": 0,
+        "application_exit": -15,
+        "task_expires_at": 1792920974,
+        "stdout_stderr": "suppressed_devnull_not_measured"
+      }
+    },
+    "unchanged_production_source_files": 35,
+    "necessary_guard_regressions_run": [
+      "custom Cargo arguments rejected",
+      "unsafe demo names rejected",
+      "source drift rejected before execution"
+    ],
+    "source_review_report": {
+      "path": "/home/nick/credman/docs/agent-native/TWO-AGENT-DEMO-SECURITY.md",
+      "sha256": "4629a1cd82ae5200bac2e7e7ec12ab711e2dd4ad58854cb912908774508e8fb7",
+      "current_helper_delta_closed": true
+    },
+    "viewer_verification": {
+      "real_browser_opened": true,
+      "recorded_events": 14,
+      "next_button": true,
+      "play_pause": true,
+      "slider_to_accepted_login": true,
+      "slider_to_corrected_native_exit_zero": true,
+      "mobile_viewport_width": 390,
+      "mobile_document_width": 390,
+      "source": "Actual browser assertions and screenshot inspection, not fixture-generated claims."
+    },
+    "cleanup": {
+      "scope": "Cleanup was not performed because its approval timed out. Task-created fixture files and every directory remain in place.",
+      "status": "not_performed_approval_timeout",
+      "retained_task_files": [
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-093128/a.sock",
+          "inode": 3706096,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-093128/application/accounts.json",
+          "inode": 3706816,
+          "size": 209,
+          "sha256": "e6ae8a1964b9a0913e04668705c0a79be120fa4167c9480cfbcff82d1a38a16c"
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-093128/application/login.sock",
+          "inode": 3706079,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-093128/b.sock",
+          "inode": 3706097,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-093128/control.sock",
+          "inode": 3706098,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-093128/vault/owner.lock",
+          "inode": 3706080,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-093128/vault/state.v2",
+          "inode": 3707702,
+          "size": 4928,
+          "sha256": "691fd73ac8be9c7b53e4cb955d2a62219a4a805fa1f48c3fb48a3498a7e2010d"
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-clean/a.sock",
+          "inode": 3709338,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-clean/application/accounts.json",
+          "inode": 3709434,
+          "size": 209,
+          "sha256": "eae5d64571ded10212a430e703c82c5d71b1642433f460e6242c6c75e6567f7a"
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-clean/application/login.sock",
+          "inode": 3709320,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-clean/b.sock",
+          "inode": 3709339,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-clean/control.sock",
+          "inode": 3709340,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-clean/vault/owner.lock",
+          "inode": 3709321,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-live-clean/vault/state.v2",
+          "inode": 3709885,
+          "size": 4928,
+          "sha256": "a17cb4e730445b16402468db60cd951983c1488ddfe29d02fbff0ce16cd3011c"
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-exit-check/a.sock",
+          "inode": 3711156,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-exit-check/application/login.sock",
+          "inode": 3711134,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-exit-check/b.sock",
+          "inode": 3711157,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-exit-check/control.sock",
+          "inode": 3711158,
+          "size": 0,
+          "sha256": null
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-exit-check/vault/owner.lock",
+          "inode": 3711135,
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/tmp/two-agent-exit-check/vault/state.v2",
+          "inode": 3711154,
+          "size": 1042,
+          "sha256": "c6dcbb06799cb6996383f7d404d85099c22d89d5842996266cbf57014ec7a5c4"
+        }
+      ],
+      "retained": "All ready/event/final JSON, build/controller receipts, reusable source, HTML/evidence and every directory.",
+      "protected_workspace_anchors_present": 10
+    }
+  },
+  "limitations": [
+    "This is offline replay of actual recorded operations, not a live vault control panel or a simulated agent conversation.",
+    "Host-capable same-UID Hermes bots are trusted operators. Separate socket roles are not authenticated host-bot isolation.",
+    "Only synthetic local credentials and a public test seed were used. No real account, user vault, production integration or deployment was involved.",
+    "The original full agent workflow passed all 16 checks but its session failed clean teardown. The raw failure is preserved. The corrected prototype shutdown was verified separately without repeating unchanged authorization behavior.",
+    "The lifecycle-only probe intentionally performs no account workflow and exits 1 for incomplete scenario checks. Its measured native broker exit 0, not its scenario status, verifies the teardown fix.",
+    "Child stdout and stderr were suppressed to DEVNULL, not measured empty. Canary checks prove only literal marker absence on the listed serialized and stored surfaces.",
+    "Production memory/PID/CPU/tmpfs quotas are absent; historical strict lint and format checks are not clean."
+  ]
+}

@@ -1,190 +1,84 @@
 # credman
 
-Local credential manager for the terminal. Credentials are encrypted at rest with AES-256-GCM and unlocked with a BIP39 seed phrase (Argon2id key derivation). No network access.
+## OpenCode usage is incomplete
 
-## Install
+OpenCode is not supported for credential use in this revision. The installed v2.2.2 client selected its configuration but did not establish MCP discovery or tool invocation. The unfinished authenticated API experiment is disabled, and the probe reports `status: incomplete` with `connected: false`. No authentication experiment or live configuration change is part of this merge. Earlier v2.1.4 records remain historical.
 
-```bash
-cargo install --path .
-```
+An agent-first credential vault and local MCP bridge. Multiple agent harnesses access the same scoped vault operations while one owner holds the encrypted store.
 
-Or build a release binary:
+The user owns credentials. A harness name, model claim, record reference, or MCP client label grants no authority. A trusted supervisor binds each client session to a principal, workspace, task allowlist, and expiry.
 
-```bash
-cargo build --release
-./target/release/credman --help
-```
+## Current scope
 
-## Quick start
+The fake-login application adapter is removed. The bridge generates local credentials, supports scoped sharing and private use through an approved HTTPS destination, reads authorized metadata, and accepts private human imports. Encrypted backup, restore safeguards, and human recovery remain in the core.
 
-```bash
-# Create a vault (shows a 12-word seed once — write it down)
-credman init
+MCP exposes `credman_generate`, `credman_mutate`, `credman_metadata`, and `credman_use`. It does not expose `credman_read`, even when a task has `SecretRead`. Agents receive references and use authority, not plaintext. A trusted human can import or read secrets through the private administration channel, subject to approved task scope.
 
-# On another device: copy the encrypted vault file, then verify your seed
-credman restore
+`credman_generate` creates local credentials, not online accounts. Login generation requires a public username and creates a private password; API-key generation creates a private token. For approved HTTPS destinations, `credman_use` performs a fixed verified-HTTPS GET with Basic or Bearer authentication. Its `Accepted`, `Rejected`, `Unknown`, and `HumanRequired` statuses describe delivery, not verified login or registration. The agent cannot choose the URL, headers, CA file, or command. Unknown delivery is not retried automatically.
 
-# Add / list / get credentials (prompts for seed each time)
-credman add
-credman list
-credman get github
+This remains a local Linux prototype, not a production provider installation or an agent messaging bus.
 
-# Interactive TUI (default when no subcommand is given)
-credman
-# or
-credman tui
-```
+## How agents share credentials
 
-Seed prompts are masked by default and show progress toward 12 words. Press `Ctrl+R` to temporarily reveal or hide the phrase; failed TUI unlocks keep the masked input so you can correct it.
+1. A trusted human supervisor unlocks one store and approves separate tasks for Agent A and Agent B.
+2. The supervisor issues each agent a one-use attachment credential through its private administration channel. The credential goes into a private session file, not the harness configuration or a chat.
+3. Each harness launches `credman mcp --session-file PATH`. The frontend authenticates to the existing owner; it never opens the vault or receives the root seed.
+4. Agent A calls `credman_generate` and receives an opaque record reference and revision. The reference alone grants no access.
+5. Within its approved delegation limits, A grants B `SecretUse` for specific fields and destination IDs, then sends B the record reference. Agent-issued `SecretRead` grants are forbidden.
+6. B calls `credman_use` through its own task and bound session. The owner supplies the secret privately to the approved HTTPS consumer and returns a receipt. Revocation and expiry block later access, including cached retries.
 
-`credman add --generate` accepts lengths from 8 through 128 characters, offers to copy the generated password, then offers an explicit terminal reveal if copying is declined or unavailable. Name lookup prefers an exact match; ambiguous partial matches list candidates so you can rerun the command with an exact name or ID.
+Revoking access cannot recall a value already sent to a trusted destination or rotate an upstream credential.
 
-## Vault location
+For attached sessions, the owner rechecks session expiry at final authorization immediately before the private delivery callback, after durable intent publication. Expiry at that boundary cancels dispatch. This does not require remote receipt or completion before expiry, or recall credentials already handed off.
 
-Default path: `~/.credman/vault`
+## Harness integration
 
-Override with `--vault /path/to/vault` or `CREDMAN_VAULT`.
+All five target harnesses document local MCP support. They use different configuration shapes, not different vault backends. The installed-client results below predate private generation and the current tool catalogue. They were not rerun for this feature.
 
-To use the same vault on another device, copy the encrypted vault file to that path (or point `--vault` / `CREDMAN_VAULT` at it), then run `credman restore` and enter your seed phrase. The seed alone cannot recreate vault contents — the file stores a random salt required for decryption.
+| Harness | Local MCP configuration | Historical installed-client check |
+|---------|-------------------------|------------------------|
+| Codex | TOML `mcp_servers.credman`, command and args | 0.164.0 discovers all four tools |
+| Claude Code | JSON `mcpServers.credman`, stdio command and args | 2.1.310 reports connected |
+| Hermes | Profile YAML `mcp_servers.credman`, command and args | Native MCP probe connects and discovers all four tools |
+| Grok Build | TOML `mcp_servers.credman`, command and args | 1.0.70 reports healthy and discovers four tools |
+| OpenCode | JSON `mcp.servers.credman`, local command array (OpenCode v2) | 2.1.4 loads the exact configuration, but its MCP listing remains empty. Runtime compatibility is unverified. |
 
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `credman init` | Create vault; display and confirm 12-word seed phrase |
-| `credman status` | Show vault path and whether it exists (no unlock) |
-| `credman backup <dir>` | Copy encrypted vault to a timestamped file in `<dir>` |
-| `credman restore` | Verify a copied vault with your seed, or create an empty vault from an existing seed |
-| `credman restore --force` | Overwrite an existing vault with a new empty vault using a provided seed |
-| `credman add` | Add an entry (interactive prompts) |
-| `credman add --generate [--length 8..128]` | Add with a generated password (default length: 24) |
-| `credman get <name\|id>` | Show an entry |
-| `credman get <q> --password-only` | Print only the password |
-| `credman get <q> --clipboard` | Copy password; clear it after 30 seconds if unchanged |
-| `credman list` | List entries (no secrets) |
-| `credman list --secrets` | Include passwords |
-| `credman edit <name\|id>` | Edit an entry |
-| `credman rm <name\|id>` | Delete an entry |
-| `credman tui` | Open the TUI |
-| `credman usb prepare <mount>` | Lay out vault + binary on a mounted USB stick |
-| `credman usb enable` | Install Linux auto-launch watcher (one-time per machine) |
-| `credman usb disable` | Remove the auto-launch watcher |
-| `credman usb status` | Show helper state and any mounted `CREDMAN` volume |
-
-Global flags: `--vault <path>`, `--seed <phrase>` (scripting only — may appear in shell history).
-
-After `init` / `restore`, you can optionally write down a short seed fingerprint (not stored; for offline verification later).
-
-## USB hardware key (Linux)
-
-Treat a USB stick as a physical key: the **encrypted vault lives on the stick** (possession), and your **12-word seed** unlocks it (knowledge).
-
-1. Format or label the stick filesystem as `CREDMAN` (`fatlabel` / `exfatlabel` / `e2label`).
-2. Mount it, then:
-   ```bash
-   credman usb prepare /media/$USER/CREDMAN
-   ```
-   Copies your current vault (or `$CREDMAN_VAULT` / `--vault`) and a portable `bin/credman` onto the stick.
-3. On each trusted Linux machine, once:
-   ```bash
-   credman usb enable
-   ```
-   Installs a user systemd poller that opens a terminal with credman when a `CREDMAN` volume appears.
-4. Insert the stick → enter your seed → vault unlocks.
-
-Prefer a host-installed `credman` on `PATH`; if missing, the launcher uses `bin/credman` from the stick. Manual use without the watcher:
+The [harness guide](docs/agent-native/HARNESS-BRIDGE.md) covers provisioning, configuration, actual compatibility checks, and lifecycle limits. Generate a configuration fragment without touching live settings:
 
 ```bash
-credman --vault /media/$USER/CREDMAN/vault
+python examples/harness_config.py codex \
+	--binary /absolute/path/to/credman \
+	--session-file /private/credman/session-agent-a.json
 ```
 
-**WSL / non-native Linux:** `usb prepare` works anywhere. Auto-launch (`usb enable`) needs native Linux with systemd user sessions and a graphical terminal; WSL USB passthrough is out of scope.
+Use `claude-code`, `hermes`, `grok-build`, or `opencode` for the other formats. The fragment contains only an executable and session-file path, never a seed or token.
 
-`credman usb disable` removes the watcher. See [SECURITY.md](SECURITY.md) for the USB threat model.
+## Native interfaces
 
-## TUI keys
-
-On the unlock screen, a **Forgot seed?** note reminds you that credman cannot recover a lost phrase.
-
-After unlock:
-
-| Key | Action |
-|-----|--------|
-| `/` | Filter list (fuzzy) |
-| `:` | Command palette (fuzzy actions) |
-| `?` | Show keyboard shortcuts |
-| `j` / `k` or arrows | Move selection |
-| `a` | Add entry |
-| `e` | Edit entry |
-| `d` | Delete entry |
-| `c` | Copy password |
-| `r` or Space | Reveal / hide password |
-| `q` / Esc | Quit (vault re-locked) |
-
-Form passwords remain masked while typing. Delete confirmation names the selected entry, and the list distinguishes an empty vault from a filter with no matches. After copying, the status line shows the remaining clipboard lifetime; quitting the TUI clears a still-matching copied password immediately.
-
-## Concurrency and lock files
-
-credman permits one process at a time to hold an unlocked session for a vault. A second CLI command or TUI fails immediately with `vault is in use` rather than waiting or risking a last-writer-wins overwrite.
-
-The advisory lock is stored next to the vault as `<vault>.lock` and is held for the complete unlocked session. The file can remain after credman exits; the operating system lock, not file existence, indicates active use. Do not delete or replace the lock file while credman is running.
-
-## Clipboard behavior
-
-CLI and TUI password copies expire after 30 seconds. Before clearing, credman compares the current clipboard text with the secret it copied. If you copied something else, credman leaves the newer value untouched.
-
-CLI commands start a small hidden helper process so the command can return immediately. The secret is sent to that helper over piped standard input, never in command-line arguments or environment variables. Clipboard clearing is best effort: desktop clipboard managers may retain history, and headless or restricted display sessions may prevent later access. The TUI performs the same comparison in-process and displays a countdown.
-
-## Data limits
-
-Limits are checked on input, before save, and after decrypting a vault. Oversized files are rejected before being read into memory.
-
-| Data | Limit |
-|------|-------|
-| Generated password | 8–128 characters |
-| Entries per vault | 10,000 |
-| Name | 256 characters; required |
-| Username | 256 characters |
-| Password | 4,096 characters |
-| URL | 2,048 characters |
-| Notes | 8,192 characters |
-| Tags per entry | 32 |
-| Tag | 64 characters |
-| Decrypted vault JSON | 16 MiB |
-| Encrypted vault file | 32 MiB |
-
-## Security model
-
-```
-seed phrase → Argon2id(salt) → AES-256-GCM key → encrypted vault file
+```text
+credman serve --directory DIRECTORY --seed-fd SEED_FD --config-fd CONFIG_FD --admin-fd ADMIN_FD [--create] [--bridge-socket PATH]
+credman mcp --session-file PATH
+credman admin --directory DIRECTORY --seed-fd SEED_FD --identity-fd IDENTITY_FD {backup,restore,recover} ...
 ```
 
-- **Seed phrase** is a BIP39 12-word mnemonic — the only unlock secret. It is never stored by credman.
-- **Salt** and **nonce** live in the vault header; ciphertext is authenticated (GCM).
-- Wrong seed or tampered file → decryption failure.
-- Key material is wrapped with `zeroize` and dropped when the process exits.
-- On Unix, new vault directories use `0700`, the default `~/.credman` directory is hardened to `0700`, and vault files use `0600`.
-- A private advisory lock prevents concurrent credman sessions from silently overwriting changes.
-- Clipboard values are cleared after 30 seconds only when they still match the copied password.
-- Each CLI command unlocks for that process only. The optional USB watcher only launches a terminal; it never stores the seed or keeps a vault unlocked.
+The seed enters through a private descriptor, not argv or an environment variable. The human administration channel remains separate from MCP. The owner is bounded to 300 seconds in this prototype; it installs no daemon. Sessions expire no later than the owner and require fresh issuance after disconnect, restart, or a consumed attachment.
 
-### Threat model (honest)
+See the [runtime reference](docs/agent-native/AGENT-RUNTIME.md) and [security model](SECURITY.md). There is no interactive credential CLI, TUI, clipboard helper, USB watcher, or old-format migration surface.
 
-| Threat | Status |
-|--------|--------|
-| Attacker steals vault file without seed | Cannot decrypt |
-| Attacker steals USB stick without seed | Cannot decrypt (ciphertext only) |
-| Attacker has seed + vault file | Full access (by design) |
-| Malware in your user session while unlocked | Can scrape memory / terminal — OS compromise wins |
-| Lost seed phrase | Vault is unrecoverable |
-
-**Backup**: keep an offline copy of the seed phrase. Use `credman backup <dir>` to copy the encrypted vault to a timestamped file (no unlock required) — without the seed it is useless to an attacker; with the seed it restores everything. On a new device, copy the vault file and run `credman restore`.
-
-See [SECURITY.md](SECURITY.md) for trust boundaries, operational details, limitations, and recovery guidance.
-
-## Development
+## Build and verification
 
 ```bash
-cargo test
-cargo run -- --help
+cargo build --release --locked
+python scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache --agent-program-tests
 ```
+
+The isolated controller builds offline, hides the host home and external network, and enables loopback only inside its private network namespace. It tests the Cargo-produced executable against synthetic state. [Historical private credential verification](docs/agent-native/private-credential-verification.json) records the baseline 25 focused Rust checks and three native private-flow cases. The [session-expiry follow-up](docs/agent-native/session-expiry-verification.json) records the later authorization repair and its targeted independent checks. The earlier [bridge verification](docs/agent-native/harness-bridge-verification.json) records historical client connection diagnostics, not current private-use proof.
+
+Earlier [agent-first refactor checks](docs/agent-native/agent-first-verification.json) and [two-real-bot playback](docs/agent-native/demo/two-agent-demo.html) remain historical evidence. The old fake-application launcher is retired; playback is not a live run of the bridge.
+
+## Limits
+
+- Same-UID host-capable agents are trusted host operators, not isolated principals. Someone who can read another session file can steal its attachment authority.
+- MCP clients can share a process/connection across conversations. One configured session is one principal, not automatically a separately authenticated identity per chat.
+- Per-worker memory, PID, CPU, and tmpfs quotas remain absent. Tests do not establish hostile-host safety, storage rollback resistance, cryptographic correctness, or power-loss behavior.
+- Real website signup, password rotation, and proof of remote account creation are not implemented. HTTPS delivery is tested with synthetic local fixtures; no real credentials, global harness configuration, deployment, commit, or push are part of validation.

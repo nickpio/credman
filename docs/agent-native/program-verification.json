@@ -1,0 +1,617 @@
+{
+  "phase": "Synthetic implementation complete; redundant tests pruned, two affected regressions passed; full historical gates retained without rerunning",
+  "updated_at": "2026-10-25T08:43:24.818011+00:00",
+  "fake_login_application": {
+    "status": "Freshly reran actual isolated declared suite; passed, not production certification",
+    "tests_passed": 6,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T082358643070Z-fake-login-tests.json",
+    "receipt_sha256": "950726ddb8cf5aad3f6660e7bedb3c94f6ee5d956747494f828e6637b1cf7897",
+    "source_sha256": {
+      "tests/test_fake_login_app.py": "e1a9741322412be7146baceffa429cdb8b6765e1e3c8236f60a306c1c9885334",
+      "tests/fake_login_app.py": "c08c67db44751837fc4e7d565808f561024234884f66b397a43ae90897ad5759"
+    },
+    "network": false,
+    "scope": "Application register/login, incorrect password, duplicate/reject/pending, real lost response, framing/verifier and canary checks; not combined vault integration",
+    "runner_sha256": "0facd48eee9c5d41d309b391bb6a647e94fd55b7d6ab6682f854633adfe88747"
+  },
+  "runner_guards": {
+    "tests_passed": 11,
+    "scope": "Runner safety/controller checks; includes explicit stubbed Cargo command-planning checks",
+    "source_sha256": "2ebcfaa0cc3519ce611a0a3776302a2ee78873fe2812689cbf4c0c1073700e34",
+    "runner_sha256": "0facd48eee9c5d41d309b391bb6a647e94fd55b7d6ab6682f854633adfe88747",
+    "python_modes": "Per-suite files and fixed arguments; RED/GREEN verified required --synthetic-only forwarding",
+    "executable_modes": "Derived fixed CLI/program suite registry; current Cargo artifact snapshotted and hashed; custom Cargo args and revision mixing rejected",
+    "status": "Fresh 11-test retained controller run passed after v7 native integration"
+  },
+  "agent_domain": {
+    "status": "Current integrated v7 domain passed full isolated suite; independent source closure pending",
+    "tests_passed": 67,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T082127615066Z-test.json",
+    "source_sha256": {
+      "src/agent/mod.rs": "6551fa628028b7bbc35a5e661ebbaaa62f69edfe66964fb73dfd4105d01b66f0",
+      "src/agent/provenance.rs": "890351d4204ee44fd0e7204cc4515274d58aa58f69ea04035ece1ec7ba4b4863",
+      "src/agent/snapshot.rs": "1774b527adb38ff181ab85c3fa1b6b91d4eee1709758b22daa12295092bfacf9",
+      "src/agent/storage.rs": "3e573582305c6de3d1256b6c233b4912ce3030db0b066759e38ce444746e44a8",
+      "src/agent/storage/backup.rs": "c8cf435239d38127d37b8e62da61d28cc31c5f06df74775b6ee6777334889cbe",
+      "src/agent/storage/backup/tests.rs": "315f827e295147597af4e326a47d7002741ac92d0a780e54b08b6bd6b57180f5",
+      "src/agent/storage/copies.rs": "8323e18c123547c8d579dd250da244e324c1b5545dc8696878e689feae86f517",
+      "src/agent/storage/copy_tests.rs": "e3140f1a2b683f541d888c2ed793e5b8ad6cab550d23a9a7cc57814302e54aa3",
+      "src/agent/storage/final_review_tests.rs": "072a945de069018fe6e4a0f82f18461fc03cd31af52a35435a3be38abf17699d",
+      "src/agent/storage/recovery.rs": "af90b1d0f5f92d7726b30c306540a9c8869584be44429773b3c39efcb29c17b4",
+      "src/agent/storage/recovery_tests.rs": "bb320e740d0d73ba346a37ca79a3889d3268e76a59c314f471f216f4cc4b527f",
+      "src/agent/storage/reviewed_repairs_tests.rs": "7568ba285165aba08f32dd0c3ef6af4c4173af66b01adf016f677bf57b3ecf34",
+      "src/agent/storage/tests.rs": "d947483b16d42b832a5445dd1f1a11a19c9a9d2437724d66258d2d893d137ba0",
+      "src/agent/storage/workflow.rs": "9249b94e474a8688d52cd6b51d76b7dc4b12042393f1dd625ccabd7a9258467d",
+      "src/agent/storage/workflow_tests.rs": "981fca372024e2a71e87a3699ab69bb61def37c67350ec17802f3466bc02a869",
+      "src/agent/tests.rs": "08e6ae92034517c48b202e6de239377a09829f956baefd5042cb3e3fb6a779e6"
+    },
+    "limitations": [
+      "Final source review of repaired scope and recovery invariants pending",
+      "Strict code-quality checks are not clean",
+      "No production or unsandboxed same-UID isolation certification"
+    ]
+  },
+  "agent_transport": {
+    "status": "Twelve actual isolated IPC tests passed, including inclusive encoded-size, JSON escape expansion and depth preflight; invalid transport still poisons",
+    "tests_passed": 12,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T075020052762Z-test.json",
+    "source_sha256": "97ac12532d66e20cd095121491faeaf43c2bcbe8b4817e477a9996669104c877",
+    "remaining": "Independent integration review and final adversarial/native-administration acceptance"
+  },
+  "encrypted_v2_persistence_and_migration": "Executed encrypted v2 owner, backup/restore with both secret kinds, explicit v1 copy import preserving source bytes, and explicit initial-publication recovery through the real native CLI",
+  "workload_containment_and_combined_signup_login": "Executed combined native broker, real fake app and actual sandboxed script-worker flow passed; see native-program receipt",
+  "real_credentials_or_accounts_used": false,
+  "published_or_deployed": false,
+  "dependency_change": {
+    "libc": "=0.2.186",
+    "scope": "Direct use of already locked/fetched transitive package for OS filesystem constants; locked offline unit build passed; no new package version fetched"
+  },
+  "backend_launch_recovery": {
+    "failed_process": "proc_58fc0c58700f",
+    "exit_code": 2,
+    "model_tokens": 0,
+    "cause": "Live gateway rejects --no-restore-cwd despite local CLI advertising it",
+    "operation_ran": false,
+    "retry_delivery": "dfe505a3ab346370b6fc7488a1f3e4f451af92719506eb4efc919765b335ddda",
+    "retry_route": "Canonical Bot Chat with restored empty cwd anchor and explicit tool workdir",
+    "status": "Retry completed; v3 source inspected and executed; follow-up v4 queued separately",
+    "retired_failed_attempt_diagnostics": [
+      {
+        "path": "/home/nick/.hermes/cache/scratch/credman-backend-v3-stream.jsonl",
+        "sha256": "fb838cc5efe34b6c55584f8ce10c1dfff419f67468f23741f7fb3ad2d41dd489",
+        "bytes": 485
+      },
+      {
+        "path": "/home/nick/.hermes/cache/scratch/credman-backend-v3-stderr.log",
+        "sha256": "f75bde1bae3b4244384bdd4a51d2f110aef8f358e2c2fbc2db83911f4102ae68",
+        "bytes": 201
+      }
+    ]
+  },
+  "workload_containment": {
+    "status": "Freshly reran actual isolated declared suite; passed, not production certification",
+    "tests_passed": 5,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T082359714600Z-workload-tests.json",
+    "receipt_sha256": "9d5502b9ddb080d55bb6985b6ef10a978d610a01621192173b5623c3b7c2c7ce",
+    "source_sha256": {
+      "tests/test_workload_launcher.py": "32a741e2a829aa736319e5e9777aa968400dd3ecaa72147c1a8b470b20943cd9",
+      "tests/workload_launcher.py": "ea5406d696abb54653f0872c75382e3a2a3d4965c3eafc7043a8210c6d8b3c51"
+    },
+    "security_green_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T053221488925Z-workload-tests.json",
+    "previous_failure": {
+      "status": "actual nested execution failed; not accepted",
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T052805741453Z-workload-tests.json",
+      "tests_executed": 5,
+      "result": "FAILED (failures=1, errors=1)",
+      "failure": "bwrap: Failed to mount tmpfs: No such file or directory; concurrent channel reset",
+      "source_sha256": {
+        "tests/test_workload_launcher.py": "0f248df6ea225fca2898d3c629450ca25afd6696a81271ad77a81db53f96733f",
+        "tests/workload_launcher.py": "381713091a9c201c5b87b22adc9d5eb8d19393b672faf9223beca33211e7e5e4"
+      },
+      "fix_task": "credman-containment-v5-runtime-fix",
+      "fix_delivery_id": "c10237237ea699481c954bdbbcf57e5030f05c81f7a18a492bc766463a19cb9e"
+    },
+    "scope": "Script workers: real fd3 roundtrip, file/admin/peer/proc/network denial, namespace separation, environment, read-only program, private scratch, refusal and scoped cleanup",
+    "limitations": [
+      "Supervisor /tmp prerequisite retained; not exposed to worker",
+      "Native-executable worker mode remains untested; compiled Rust broker plus sandboxed Python worker integration passed",
+      "No hostile unsandboxed same-UID protection or production isolation certification"
+    ],
+    "runner_sha256": "0facd48eee9c5d41d309b391bb6a647e94fd55b7d6ab6682f854633adfe88747"
+  },
+  "full_rust_suite": {
+    "tests_passed": 157,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T082127615066Z-test.json",
+    "receipt_sha256": "b5a66521a62e102dad0feb0463b4d02ed7078b8b2027bf6fc9fbc4c032e60e84",
+    "scope": "Current v7 integrated source, matching all recorded source hashes in the frozen 43-file repair review and live tree; no production certification; historical execution before test-only cleanup (current inventory is 153 Rust tests, not rerun in full)"
+  },
+  "backend_v4": {
+    "status": "source inspected; parent independently reran 43 tests, then full suite after parent fixes",
+    "delivery_id": "687fc0d97413ee3e17925efd64a71c3128ffe27a716458dcde97896ce0db7742",
+    "brief": "/home/nick/.hermes/cache/scratch/credman-backend-v4-request.md",
+    "report": "/home/nick/.hermes/profiles/backend-engineer/engineering/credman-vault-implementation-v4/report.md",
+    "parent_targeted_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T054834080952Z-test.json"
+  },
+  "independent_review": {
+    "task": "credman-v3-durable-owner-review-v1",
+    "status": "completed source-only review: BLOCK; not a runtime approval or review of v4",
+    "failed_delivery_id": "6ca0f2ed517b09aa5fc75719a5873d376fb96bb067e8b6c600da2f75387f296b",
+    "delivery_id": "850db8c1d5ff0fa30dd30bb703f1f036ff9631837d6bbbffccffddcacd1f349d",
+    "snapshot": "/home/nick/.hermes/cache/scratch/credman-v3-source-review",
+    "verdict": "BLOCK",
+    "report": "/home/nick/.hermes/profiles/qa-engineer/reviews/credman-v3-durable-owner-review-v1/report.md",
+    "report_sha256": "6693cbe453e5b073ea2dcf24043d843fbbdc0e27971ea1f3843ca2a4302c026f",
+    "parent_verified_frozen_input_files": 9,
+    "blocking_findings": [
+      {
+        "severity": "high",
+        "location": "src/agent/storage.rs:317-336 at frozen v3",
+        "finding": "One stale timestamp is reused across durable intent publication, allowing handoff after task/grant expiry",
+        "disposition": "Closed in source by independent v4 review, supported by parent expiry/rollback regressions; separate medium findings remain",
+        "required_negative_checks": [
+          "Grant expiry during publication, zero adapter calls",
+          "Recipient task expiry during publication, zero adapter calls",
+          "Issuer task expiry during publication, zero adapter calls",
+          "Fresh trusted-clock rollback remains persistently fail-closed"
+        ]
+      }
+    ],
+    "integration_caution": "Normalize delivery failure separately from storage NotPublished; a callback failure after receiving plaintext must not invite replay or claim non-dispatch",
+    "task_scope_verified": {
+      "only_deliverable_write": "report.md",
+      "terminal_action": "read-only SHA-256 comparison and TOML parsing",
+      "no_build_or_test_execution": true,
+      "successful_pstack_skills": [
+        "poteto-mode",
+        "how",
+        "unslop",
+        "principle-boundary-discipline",
+        "principle-test-behavior-not-implementation"
+      ]
+    }
+  },
+  "cleanup_boundary": "No deletion or relocation of bot/chat workspaces or their ancestor directories, including idle/scratch/test paths",
+  "private_adapter": {
+    "status": "source inspected, wired and passed actual isolated Rust plus fake-app subprocess/socket tests",
+    "delivery_id": "7e4306d4fdc085994fe05c830e971c20affc3456762be15069cba3d2bc36a6ea",
+    "task": "credman-private-adapter-v6",
+    "tests_passed": 7,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T062925471724Z-test.json",
+    "source_sha256": "9d13b168d0a17b529020960d0b6053d00a381210ca3ee1ce736ac2cc6c196216",
+    "report": "/home/nick/.hermes/profiles/security-engineer/engineering/credman-private-adapter-v6/report.md",
+    "scope": "Real normal/reject/email/MFA/lost-registration-response, protocol/field/config/deadline/redaction tests"
+  },
+  "previous_full_rust_suite": {
+    "tests_passed": 109,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T052848969506Z-test.json",
+    "receipt_sha256": "ee2d148dfae958e7618f87481612e9be6681352bdc8eab07c778b4ab9a8986e1",
+    "scope": "Executed unit suite at recorded source hashes, not full broker/signup/login acceptance",
+    "new_warnings": [
+      "unused import storage::DurableVault",
+      "DurableVault::metadata unused before integration"
+    ]
+  },
+  "parent_v4_followup": {
+    "behavioral_red": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T055147165419Z-test.json",
+    "workflow_green": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T055159106839Z-test.json",
+    "tests_passed": 7,
+    "change": "Normalize callback errors to InteractionRequired after recording Unknown; persistently cancel grant/recipient/issuer deadline failures",
+    "note": "Issuer expiry also expires its attenuated grant; that case is not independent branch coverage"
+  },
+  "backend_v5": {
+    "status": "Handoff read; APIs integrated into native administration; full Rust and real copy/backup/restore CLI tests passed",
+    "delivery_id": "4269c47adb6a8f703647e8d2f7de76e838903da62609bc961b2b52a266bc0752",
+    "brief": "/home/nick/.hermes/cache/scratch/credman-backend-v5-request.md"
+  },
+  "independent_review_v4": {
+    "status": "BLOCK source-only: prior expiry and callback-error issues closed, three medium findings remain",
+    "verdict": "BLOCK",
+    "report": "/home/nick/.hermes/profiles/qa-engineer/reviews/credman-v4-workflow-recovery-review-v1/report.md",
+    "report_sha256": "efc8149c9e08fb00e110ca8488ed2bbe60565282dfcb8c04f3cd3a7678f43b1f",
+    "findings": [
+      "Ordinary Patch can rearm registration after Unknown on the same record",
+      "Recovery rejects valid interrupted initial creation without a state file",
+      "Mixed scopes are admitted but no scoped admin can authorize their recovery"
+    ],
+    "delivery_id": "5d10d46d870f1b8fee854c76be84d9b3ad3bd8c4ba88593419c1679e8b96c557",
+    "snapshot": "/home/nick/.hermes/cache/scratch/credman-v4-source-review",
+    "frozen_input_files": 13
+  },
+  "agent_program_integration": {
+    "status": "Historical eleven-case GREEN before test-only consolidation; current ten retained native test bodies are unchanged, no full rerun",
+    "latest_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T081756347300Z-agent-program-tests.json",
+    "latest_tests_executed": 11,
+    "latest_failures": 0,
+    "current_gate_passed": true,
+    "previous_tests_passed": 4,
+    "receipt_scope": "Eleven native cases including initial import/restore copied-publication evidence recovery, lost receipt retrieval, and source mode preservation",
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T081756347300Z-agent-program-tests.json",
+    "receipt_sha256": "a3064431e12201072df7f0235d772378366f77002ad838393542b5525a6cfb29",
+    "cli_artifact": {
+      "cargo_executable": "/target/debug/credman",
+      "executed_snapshot": "/repo/.verified-bin/credman",
+      "sha256": "a84dc7014b546e16c7f3e35f6bc249808dab743cb59c445454318222aa8ad968",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 2,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    },
+    "source_sha256": {
+      "Cargo.toml": "80aba008d8145f9723efcdf897c1e82dc63d3269a1b79746f26a504a45382b9f",
+      "Cargo.lock": "a021e6ad805ab1317a0fc445bc68dbb1bdb9c452742e07aa854b07d01a67d82e",
+      "src/agent/mod.rs": "6551fa628028b7bbc35a5e661ebbaaa62f69edfe66964fb73dfd4105d01b66f0",
+      "src/agent/provenance.rs": "890351d4204ee44fd0e7204cc4515274d58aa58f69ea04035ece1ec7ba4b4863",
+      "src/agent/snapshot.rs": "1774b527adb38ff181ab85c3fa1b6b91d4eee1709758b22daa12295092bfacf9",
+      "src/agent/storage.rs": "3e573582305c6de3d1256b6c233b4912ce3030db0b066759e38ce444746e44a8",
+      "src/agent/storage/backup.rs": "c8cf435239d38127d37b8e62da61d28cc31c5f06df74775b6ee6777334889cbe",
+      "src/agent/storage/backup/tests.rs": "315f827e295147597af4e326a47d7002741ac92d0a780e54b08b6bd6b57180f5",
+      "src/agent/storage/copies.rs": "8323e18c123547c8d579dd250da244e324c1b5545dc8696878e689feae86f517",
+      "src/agent/storage/copy_tests.rs": "e3140f1a2b683f541d888c2ed793e5b8ad6cab550d23a9a7cc57814302e54aa3",
+      "src/agent/storage/final_review_tests.rs": "072a945de069018fe6e4a0f82f18461fc03cd31af52a35435a3be38abf17699d",
+      "src/agent/storage/recovery.rs": "af90b1d0f5f92d7726b30c306540a9c8869584be44429773b3c39efcb29c17b4",
+      "src/agent/storage/recovery_tests.rs": "bb320e740d0d73ba346a37ca79a3889d3268e76a59c314f471f216f4cc4b527f",
+      "src/agent/storage/reviewed_repairs_tests.rs": "7568ba285165aba08f32dd0c3ef6af4c4173af66b01adf016f677bf57b3ecf34",
+      "src/agent/storage/tests.rs": "d947483b16d42b832a5445dd1f1a11a19c9a9d2437724d66258d2d893d137ba0",
+      "src/agent/storage/workflow.rs": "9249b94e474a8688d52cd6b51d76b7dc4b12042393f1dd625ccabd7a9258467d",
+      "src/agent/storage/workflow_tests.rs": "981fca372024e2a71e87a3699ab69bb61def37c67350ec17802f3466bc02a869",
+      "src/agent/tests.rs": "08e6ae92034517c48b202e6de239377a09829f956baefd5042cb3e3fb6a779e6",
+      "src/agent_adapter.rs": "9d13b168d0a17b529020960d0b6053d00a381210ca3ee1ce736ac2cc6c196216",
+      "src/agent_admin.rs": "2763fbeb07f00c668193b3210e055369c4bc34f75b58e6f3ef0ca51838173a45",
+      "src/agent_broker.rs": "06a7d5073e37cf43d51ba77aadd40832801b23fdbd31818a93d0070282fe61b9",
+      "src/agent_ipc.rs": "9e7fcf91d4b2d4bb8af70d94eb863023cd77485577443308ad6a78806582607a",
+      "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+      "src/cli.rs": "f52c52f2b1202cfe40bbac1521a4361304fa24e4b5bc66f2199989d57b07a965",
+      "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+      "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+      "src/main.rs": "45966344a91b700569c4c6d63c3424c3b3d3c72b7105d90212c333d4efa25441",
+      "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+      "src/tui/app.rs": "a35bd377043fed9a17423ee5bdf1545663ee56b792c4d6a76a5c1a17ea24fe61",
+      "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+      "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+      "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+      "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+      "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+      "src/vault.rs": "ae71b0948873d7bfa4fbda83032d1da47e37774f13c7d4e574d51c17168fe5ac",
+      "tests/cli_storage_regression.py": "eb9c3be3eeb540e4c92b282805308390d6d10dc24d3383ac02ea43ef6b08a668",
+      "tests/agent_program_regression.py": "d9d7092eca04d2ff32ad0128ff180c138e4dc4dc436aa6edf1eea808516b02f1",
+      "tests/test_fake_login_app.py": "e1a9741322412be7146baceffa429cdb8b6765e1e3c8236f60a306c1c9885334",
+      "tests/fake_login_app.py": "c08c67db44751837fc4e7d565808f561024234884f66b397a43ae90897ad5759",
+      "tests/test_workload_launcher.py": "32a741e2a829aa736319e5e9777aa968400dd3ecaa72147c1a8b470b20943cd9",
+      "tests/workload_launcher.py": "ea5406d696abb54653f0872c75382e3a2a3d4965c3eafc7043a8210c6d8b3c51"
+    },
+    "previous_red": {
+      "status": "RED: real compiled CLI lacks agent-run; broker source drafted but not wired or compiled",
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T061827192036Z-agent-program-tests.json",
+      "cli_artifact_sha256": "52986601973f268b6c29e66cc578ab095e5a0e852b58a6fd3cbb2da0ddfe0c8c",
+      "new_source": "src/agent_broker.rs",
+      "new_acceptance_fixture": "tests/agent_program_regression.py",
+      "scope": "Initial native CLI unlock/approval and bound identity acceptance test; not a completed feature"
+    },
+    "scope": [
+      "Unlock alone grants no task authority; JSON cannot forge a bound identity or admin channel",
+      "Explicit secret.read, private registration, use-only peer login and grant-revocation retry denial",
+      "Real dropped registration response and broker restart retain one registration, then verify login",
+      "Actual Bubblewrap worker holds only worker fd3, cannot open vault, cannot shut down admin, and completes private signup/login",
+      "Ordinary patch cannot rearm uncertain registration after restart",
+      "Encrypted seed/passphrase backups restore only to new stores and require fresh authority",
+      "Real legacy CLI record copy imports without changing source bytes; fresh grant permits private login, never signup",
+      "Explicit native recovery accepts a crafted valid initial-publication journal without implicit task authority",
+      "Escape-expanded aggregate secret.read and metadata responses return bounded Capacity errors without losing admin, workload, or other-peer channels",
+      "Actual failed receipt pipe reports import committed; read-only mapping retrieval repeats without source or destination payload mutation",
+      "Copy import preserves original 0400 source permissions while requiring fresh scoped login authority",
+      "Actual native import/restore ciphertext candidates in crafted initial-publication journals recover through human CLI and retain exact import mapping; not killed-writer or power-loss proof"
+    ],
+    "limits": [
+      "Synthetic local endpoint and trusted supervisor/host only",
+      "No production or hostile unsandboxed same-UID isolation certification",
+      "Destination permission currently covers both Register and Login, not login-only action policy",
+      "Initial-publication native test constructs evidence; it is not a killed-writer or power-loss experiment",
+      "Strict lint and formatting fail; independent review pending"
+    ],
+    "preceding_negative_gate": {
+      "status": "Latest expanded native gate is RED: ordinary Patch rearms uncertain registration",
+      "latest_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T064513957731Z-agent-program-tests.json",
+      "latest_tests_executed": 5,
+      "latest_failures": 1,
+      "current_gate_passed": false
+    },
+    "prior_eight_case_green": {
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T073945017381Z-agent-program-tests.json",
+      "cli_artifact": {
+        "cargo_executable": "/target/debug/credman",
+        "executed_snapshot": "/repo/.verified-bin/credman",
+        "sha256": "66a306d8492abaa2b91067094685b1c3def2288093d62e1059b2907a83aae5f4",
+        "profile": {
+          "opt_level": "0",
+          "debuginfo": 2,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": false
+        }
+      },
+      "tests_passed": 8
+    },
+    "previous_nine_case_green": {
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T075025124518Z-agent-program-tests.json",
+      "cli_artifact": {
+        "cargo_executable": "/target/debug/credman",
+        "executed_snapshot": "/repo/.verified-bin/credman",
+        "sha256": "c1aed0dd7ad850c3187bc08fca26fbf858452c4482c844a6403d33328ea7b668",
+        "profile": {
+          "opt_level": "0",
+          "debuginfo": 2,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": false
+        }
+      },
+      "tests_passed": 9
+    },
+    "previous_ten_case_green": {
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T080841379861Z-agent-program-tests.json",
+      "cli_artifact": {
+        "cargo_executable": "/target/debug/credman",
+        "executed_snapshot": "/repo/.verified-bin/credman",
+        "sha256": "a84dc7014b546e16c7f3e35f6bc249808dab743cb59c445454318222aa8ad968",
+        "profile": {
+          "opt_level": "0",
+          "debuginfo": 2,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": false
+        }
+      },
+      "tests_passed": 10
+    }
+  },
+  "backend_v6": {
+    "status": "Completed author handoff read and verified; six changed backend sources match specialist GREEN and parent full-suite sources. Independent source closure remains pending.",
+    "delivery_id": "ca064cfa848dcc2e4ad97164e380584595ff2f81fa8ed8ab60fb3c777b359d66",
+    "brief": "/home/nick/.hermes/cache/scratch/credman-backend-v6-request.md",
+    "scope": "Three independently reviewed workflow/recovery repairs; first reproduced by parent through the actual program",
+    "report": "/home/nick/.hermes/profiles/backend-engineer/engineering/credman-vault-implementation-v6/report.md",
+    "report_sha256": "b72f1f7df9cc7d149dfb662da16a0d3cc3c2b4024bc25feabaaec2895c006558",
+    "specialist_rust_green_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T065548117073Z-test.json",
+    "specialist_native_green_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T070004180109Z-agent-program-tests.json",
+    "parent_verified_changed_files": 6,
+    "parent_source_spot_checks": [
+      "Registration journal guard is record-wide, not value-version-wide",
+      "Snapshot rejects multiple potentially dispatched registrations for one record",
+      "Missing-state recovery requires empty pristine generation-1 authenticated candidate",
+      "Task approval and snapshot reconstruction retain one owner/workspace scope even after revocation"
+    ]
+  },
+  "native_program_review": {
+    "status": "Completed source-only BLOCK at preceding four-case snapshot; response-size finding now reproduced and regression repaired, final source closure pending",
+    "delivery_id": "f3267703685ef133daeeed3e7a06ade57d952f582cdfb2c1c65ecd1a87a49f4a",
+    "snapshot": "/home/nick/.hermes/cache/scratch/credman-program-source-review",
+    "frozen_files": 12,
+    "scope": "Broker/CLI/private-adapter/transport and fixtures, not in-flight v5 domain implementation",
+    "verdict": "BLOCK",
+    "report": "/home/nick/.hermes/profiles/qa-engineer/reviews/credman-native-program-review-v1/report.md",
+    "report_sha256": "2b707460bbc882a4dd380e92d058b68f6ff9375083e2f31da12546115203c900",
+    "parent_red_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T074802972004Z-agent-program-tests.json",
+    "parent_green_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T075025124518Z-agent-program-tests.json",
+    "finding": "Locally generated oversized disclosure poisoned the preconnected channel; bounded no-allocation preflight now substitutes a safe Capacity response"
+  },
+  "release_ready": false,
+  "full_rust_suite_history": [
+    {
+      "tests_passed": 121,
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T055344332561Z-test.json",
+      "receipt_sha256": "31c422c390e0482598c9e68b6b666a5450cc7992768a473ad05ffb29c0c4cf45",
+      "scope": "Frozen v4 plus parent error normalization/expiry coverage; not live v5 or complete broker integration",
+      "new_warnings": [
+        "unused DurableVault re-export before broker wiring",
+        "unused durable metadata method before broker wiring"
+      ]
+    },
+    {
+      "tests_passed": 145,
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T072515038760Z-test.json",
+      "receipt_sha256": "3fc5087b7ee7f0ea423af4bfb3e93c3c3870c3db0cf705a4e69e0ddbc195f8bf",
+      "scope": "Current integrated source including reviewed repairs, copy/backup, broker, offline administration, adapter and legacy compatibility; not production certification; this 145-test result precedes the three-file response-size fix"
+    },
+    {
+      "tests_passed": 147,
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T075322751771Z-test.json",
+      "receipt_sha256": "77a8b1005aa4aea350c5f677beaae06f4b4ebc1b8a1cbf4367c74d9fa16c9139",
+      "scope": "Full source after response-size fix, before final-review v7 repairs; not proof of current in-progress v7 core/source reader"
+    }
+  ],
+  "legacy_cli_regressions": {
+    "tests_passed": 2,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T082333812295Z-cli-regressions.json",
+    "receipt_sha256": "73c4eafcda5eb8cd27100bed2ed4beff850b817969230662f348193bc4142036",
+    "runner_sha256": "0facd48eee9c5d41d309b391bb6a647e94fd55b7d6ab6682f854633adfe88747",
+    "cli_artifact": {
+      "cargo_executable": "/target/debug/credman",
+      "executed_snapshot": "/repo/.verified-bin/credman",
+      "sha256": "a84dc7014b546e16c7f3e35f6bc249808dab743cb59c445454318222aa8ad968",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 2,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    }
+  },
+  "final_independent_review": {
+    "status": "completed, changes requested; v7 repairs and independent closure pending",
+    "delegation_id": "deleg_c47cf774",
+    "snapshot": "/home/nick/.hermes/cache/scratch/credman-final-source-review-20261025",
+    "files": 42,
+    "manifest_sha256": "1c4e4a843a8dd42997d9a0129ae2b93072f8d8b558215e37a83b7c07dd1f9e44",
+    "scope": [
+      "Native broker, offline admin and private descriptor boundary",
+      "Core repairs, snapshots, recovery and copy/backup invariants"
+    ],
+    "response_size_delta_snapshot": "/home/nick/.hermes/cache/scratch/credman-response-size-review-20261025",
+    "response_size_delta_review": "Not yet source-closed; do not infer approval from regression results",
+    "reports": {
+      "core": {
+        "path": "/home/nick/.hermes/cache/scratch/credman-final-core-review.md",
+        "sha256": "98d34c8e5d3c9e76eab9ad2e6a601ebd45124418450c190f8370a653a6686755",
+        "status": "Completed source-only assessment; changes requested, not runtime/release approval"
+      },
+      "native": {
+        "path": "/home/nick/.hermes/cache/scratch/credman-final-native-review.md",
+        "sha256": "1738567960071b98b03b53860b03a91ae606416bd894b473c1677fe05208ca80",
+        "status": "Completed source-only assessment; changes requested, not runtime/release approval"
+      }
+    },
+    "scope_closures": [
+      "Record-wide registration guard closes original patch replay issue",
+      "Retained task/snapshot scope binding closes mixed-scope admission issue"
+    ],
+    "open_or_pending_findings": {
+      "M1": "Valid first-publication import/restore journals need recovery support; Backend v7 assigned",
+      "F1": "Lost import receipt hid a committed destination; real native RED reproduced and parent GREEN now verifies explicit committed diagnostic and repeatable read-only mapping retrieval",
+      "F2": "Duplicate secret-field keys in authenticated offline snapshots; Backend v7 assigned",
+      "F3": "Valid production resource-envelope gap; no per-worker memory/PID/CPU/tmpfs quotas certified. Deferred explicit production limitation, not dismissed or tested with unbounded probes",
+      "F4": "Legacy copy reader changed source mode; real native RED reproduced and GREEN verifies preserved 0400 mode via new read-only source API; independent closure pending"
+    }
+  },
+  "code_quality": {
+    "status": "FAILED; not a clean lint/format gate",
+    "current_clippy_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T082403999155Z-clippy.json",
+    "baseline_clippy_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T074143236159Z-clippy.json",
+    "baseline_revision": "b4ea916",
+    "current_diagnostics": 26,
+    "baseline_diagnostics": 15,
+    "new_diagnostics": [
+      "Two methods used only in tests are unused in the normal binary",
+      "Three agent methods exceed the Clippy argument-count threshold",
+      "Native broker request enum has a large variant"
+    ],
+    "fmt_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T082449380873Z-fmt.json",
+    "fmt_status": "Fresh current v7 check failed; no broad formatter rewrite or warning suppression",
+    "new_over_baseline": 11,
+    "scope": "Current v7 source; 15 inherited diagnostics plus earlier six agent/broker findings and five new needless-borrow diagnostics in readonly source helper"
+  },
+  "current_full_rust_rerun": {
+    "status": "completed",
+    "process": "proc_14166daad7c8",
+    "tests_passed": 157,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T082127615066Z-test.json",
+    "source_matches_v7_review": true
+  },
+  "final_repairs_v7": {
+    "status": "Completed: both handoffs verified, current full/native/legacy/fake-app/containment/controller checks pass; independent scoped source closure verified",
+    "backend_delivery_id": "713666508dac84a74f39f0f6757c7d8cc6b3b8394f95da3a3611cf38e176a3de",
+    "security_delivery_id": "1d6066f598faf0618ef7657d7a039e2118af5de442f2e5fadc2a01347c377b00",
+    "scope": "Backend owns src/agent/**; Security owns src/vault.rs; parent owns admin/CLI/native cases",
+    "native_red_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T080550849539Z-agent-program-tests.json",
+    "native_green_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T081756347300Z-agent-program-tests.json",
+    "native_tests_passed": 11
+  },
+  "v7_independent_closure": {
+    "status": "completed: scoped repaired findings source-level closed; not production approval",
+    "delegation_id": "deleg_91c4fac2",
+    "snapshot": "/home/nick/.hermes/cache/scratch/credman-v7-source-review-20261025",
+    "files": 43,
+    "manifest_sha256": "dc997934778aaf479553a47aec5ebce025a961f4ce5e31686555585ff514db31",
+    "scope": "M1/F1/F2/F4 and response-size seam; prior v6 invariants; resource quotas remain open production limitation",
+    "report": "/home/nick/.hermes/cache/scratch/credman-v7-closure-review.md",
+    "report_sha256": "517e4e65c17d8eb56bd4d095d4de8547174daf544d3ccfa3a15e384bf712d517",
+    "source_files_verified": 43,
+    "closed_findings": [
+      "M1 initial import/restore recovery",
+      "F1 committed import receipt loss/retrieval",
+      "F2 offline duplicate credential-field decoding",
+      "F4 read-only copy-source permissions",
+      "Generated response encoded-size handling"
+    ],
+    "unresolved_production_limit": "F3 per-worker memory/PID/CPU/tmpfs quotas are absent",
+    "runtime_scope": "Reviewer verified native receipt correspondence, not independent execution; parent separately passed current matching-source 157-test full suite"
+  },
+  "security_readonly_source_v7": {
+    "status": "Author handoff read; source matches 22-test specialist GREEN; parent native eleven-case and 157-test full-suite verification passed",
+    "delivery_id": "1d6066f598faf0618ef7657d7a039e2118af5de442f2e5fadc2a01347c377b00",
+    "report": "/home/nick/.hermes/profiles/security-engineer/engineering/credman-readonly-import-v7/report.md",
+    "report_sha256": "f041ca2d31fceeaf5ff33240eb3a2c6399c0fc5bd3ab34b49477c4d270158e1e",
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T080405541440Z-test.json",
+    "specialist_tests_passed": 22,
+    "interface": "UnlockedVault::unlock_copy_source(&Path, &str) -> anyhow::Result<Self>",
+    "prerequisites": "Existing source.lock; owned regular single-link source/sidecar, no final symlinks; retained exclusive flock, no uncoordinated fallback",
+    "limits": [
+      "DAC permissions tested, not independent readonly mount or NFS locking",
+      "Read may update atime; no immutable-timestamps claim"
+    ]
+  },
+  "backend_final_core_v7": {
+    "status": "Author handoff read and six changed hashes verified against specialist GREEN and current tree; parent full 157/native 11 already passed",
+    "delivery_id": "713666508dac84a74f39f0f6757c7d8cc6b3b8394f95da3a3611cf38e176a3de",
+    "report": "/home/nick/.hermes/profiles/backend-engineer/engineering/credman-final-core-v7/report.md",
+    "report_sha256": "ea140012a77392ca9f294f16107b8dcd502794497ba54d18e6f44c22b7897997",
+    "specialist_receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T080810146312Z-test.json",
+    "receipt_sha256": "b88298b93a15ca1329566d5da7ec3e6c469624e36104be78d602ca3935676d56",
+    "specialist_tests_passed": 67,
+    "parent_source_files_verified": 6,
+    "source_spot_checks": [
+      "Shared safe initial-publication predicate requires revoked authority, copy-blocked records and resolved deliveries",
+      "Duplicate decoded Field keys rejected before inserting duplicate value",
+      "Read-only receipt requires ready owner and whole-vault admin scope; returns UUID mapping only",
+      "Real public copy writers exercised with fault after durable pending sync and before state rename"
+    ]
+  },
+  "synthetic_functional_acceptance_passed": true,
+  "completion_limits": [
+    "No hostile unsandboxed same-UID isolation or production credential-provider deployment",
+    "No per-worker resource quotas; F3 remains open",
+    "Strict Clippy fails with 26 diagnostics, 15 inherited; formatting fails",
+    "Legacy CLI/TUI remain v1; no real vault migration or account creation",
+    "No power-loss, hostile-host, rollback, mounted-readonly/NFS or cryptographic certification"
+  ],
+  "test_cleanup": {
+    "completed_at": "2026-10-25T08:59:11.463065+00:00",
+    "scope": "Requested redundant test-code cleanup only; production behavior unchanged",
+    "before": {
+      "rust_tests": 157,
+      "native_tests": 11
+    },
+    "after": {
+      "rust_tests": 153,
+      "native_tests": 10
+    },
+    "net_code_lines_removed": 83,
+    "changed_files": [
+      "src/agent_ipc.rs",
+      "src/agent/storage/workflow_tests.rs",
+      "src/agent/storage/reviewed_repairs_tests.rs",
+      "src/agent/storage/final_review_tests.rs",
+      "tests/agent_program_regression.py"
+    ],
+    "retained_native_test_bodies_ast_unchanged": true,
+    "production_code_unchanged": true,
+    "coverage_consolidation": {
+      "duplicate_callback_panic_test": "Retained storage unwind gate and registration-recovery regressions",
+      "duplicate_raw_secret_input_test": "Retained actual authenticated malformed-backup restore rejection, including exact/escaped duplicates and equal/different values",
+      "overlapping_initial_copy_recovery_tests": "Merged data, scope, revocation and reopen assertions into retained interrupted-recovery/resume test",
+      "generic_transport_binding_getter_test": "Retained actual native channel-identity/forgery denial test",
+      "duplicate_native_empty_recovery_case": "Retained real Rust empty-create recovery and native import/restore recovery cases",
+      "registration_cartesian_matrix": "Reduced eight equivalent storage roundtrips to two representative unknown/accepted metadata/secret cases",
+      "unused_broker_list": "Removed; per-process addCleanup remains"
+    },
+    "verification": {
+      "affected_regression_tests_passed": 2,
+      "receipts": [
+        "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T085600355310Z-test.json",
+        "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T085616798839Z-test.json"
+      ],
+      "python_syntax": "AST parse passed",
+      "retained_python_test_logic": "AST identical to previously passed cases",
+      "full_suite_rerun": false,
+      "new_independent_review": false
+    },
+    "bot_chat_or_workspace_folders_deleted_or_relocated": false
+  },
+  "current_test_inventory": {
+    "rust_tests": 153,
+    "native_tests": 10
+  }
+}

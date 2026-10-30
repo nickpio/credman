@@ -1,0 +1,407 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-10-25T04:02:31.829763+00:00",
+  "phase": "First storage hardening only",
+  "branch": "agent-native/storage-foundation",
+  "code_commit": "b4ea916fe5807569755df110e3ac9c5961c16753",
+  "baseline_commit": "510c2a0b8bd4e2fd1bc4d022f89dff4d85a6f7dc",
+  "toolchain": {
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+    "shell_profiles_modified": false
+  },
+  "checks": {
+    "baseline": {
+      "receipt_path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T030328348028Z-test.json",
+      "receipt_sha256": "d7c972379cae1cb89a7cf80b43950661fe8060c7d9ec8595f88eceef6a387c96",
+      "command": [
+        "/opt/rust/bin/cargo",
+        "test",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "network": false,
+      "source_sha256": {
+        "Cargo.lock": "951355a4c8c8ab613042ec7889f082b552e3728968adda0f526ab81bc3ad3c3d",
+        "Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+        "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+        "src/cli.rs": "f536accd8eec104178dd589b3e3d2605a1acd288c952396b29f1dedc452723e5",
+        "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+        "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+        "src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+        "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+        "src/tui/app.rs": "52a75a1625c65adc37ae713b0475f0b379b2f8fd89c4b3019b7846ed074a778b",
+        "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+        "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+        "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+        "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+        "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+        "src/vault.rs": "7f138f98215d50beaaf26bb8e2e0b6dcf653561718f4f1728ce5873087f1aeff"
+      },
+      "runner_sha256": null,
+      "cli_artifact": null,
+      "stdout_sha256": "2c8cd246b8679893aca9af4233ac840410921002c797e596d279022de7c7c2d3",
+      "stderr_sha256": "05a08280db88b3afd36204ac0c0df343628428e7130f366dff02273b5cc120f7",
+      "rust_test_summaries": [
+        "test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 52.71s"
+      ],
+      "python_test_count": null
+    },
+    "replacement_red": {
+      "receipt_path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T030727231241Z-test.json",
+      "receipt_sha256": "cc9ebfef93e7f6dddb255ad60d8104ffbcdc9f5dfe1911f8226fc7f51c76c710",
+      "command": [
+        "/opt/rust/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "failed_replacement_preserves_existing_vault",
+        "--",
+        "--exact",
+        "vault::tests::failed_replacement_preserves_existing_vault"
+      ],
+      "exit_code": 101,
+      "network": false,
+      "source_sha256": {
+        "Cargo.lock": "951355a4c8c8ab613042ec7889f082b552e3728968adda0f526ab81bc3ad3c3d",
+        "Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+        "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+        "src/cli.rs": "f536accd8eec104178dd589b3e3d2605a1acd288c952396b29f1dedc452723e5",
+        "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+        "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+        "src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+        "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+        "src/tui/app.rs": "52a75a1625c65adc37ae713b0475f0b379b2f8fd89c4b3019b7846ed074a778b",
+        "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+        "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+        "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+        "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+        "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+        "src/vault.rs": "48db844f9d74296243f276eea10b06c1cdba80890749ac43eaa3da4bf15522f9"
+      },
+      "runner_sha256": null,
+      "cli_artifact": null,
+      "stdout_sha256": "c009f5f442ff21556b45319b60fc897d5bf06f97f7a33a001a4869044305ba2f",
+      "stderr_sha256": "0c3ba00aee88bf47ba883397f749f928a3b67d5b13df5aaa8c7947314b286f7a",
+      "rust_test_summaries": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 5.91s"
+      ],
+      "python_test_count": null
+    },
+    "replacement_green": {
+      "receipt_path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T031337300144Z-test.json",
+      "receipt_sha256": "4ffb14a659122834017a50ab96d193c6d8255751f6b371a69d2a03709fdd1c4e",
+      "command": [
+        "/opt/rust/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "failed_replacement_preserves_existing_vault",
+        "--",
+        "--exact",
+        "vault::tests::failed_replacement_preserves_existing_vault"
+      ],
+      "exit_code": 0,
+      "network": false,
+      "source_sha256": {
+        "Cargo.lock": "951355a4c8c8ab613042ec7889f082b552e3728968adda0f526ab81bc3ad3c3d",
+        "Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+        "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+        "src/cli.rs": "f536accd8eec104178dd589b3e3d2605a1acd288c952396b29f1dedc452723e5",
+        "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+        "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+        "src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+        "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+        "src/tui/app.rs": "52a75a1625c65adc37ae713b0475f0b379b2f8fd89c4b3019b7846ed074a778b",
+        "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+        "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+        "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+        "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+        "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+        "src/vault.rs": "521b61d713890c93a032670077857c59f910b8c1d0be3387698fd0753956668a"
+      },
+      "runner_sha256": null,
+      "cli_artifact": null,
+      "stdout_sha256": "5955fd7d74edb88aea3b0087f7e1508051deb07478ede95d2baabd2a971f8e2b",
+      "stderr_sha256": "76264c3eeb34bc2bfa8831396068f30ea432c0bb2f704a94da45720421ed52d3",
+      "rust_test_summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 8.61s"
+      ],
+      "python_test_count": null
+    },
+    "tui_delete_red": {
+      "receipt_path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T031503093295Z-test.json",
+      "receipt_sha256": "f1b902fc8862ab03cf9be09f04518026099f17b24ccc818bc935b15e63ccc209",
+      "command": [
+        "/opt/rust/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "failed_delete_restores_entry_order_and_dirty_state",
+        "--",
+        "--exact",
+        "tui::app::tests::failed_delete_restores_entry_order_and_dirty_state"
+      ],
+      "exit_code": 101,
+      "network": false,
+      "source_sha256": {
+        "Cargo.lock": "951355a4c8c8ab613042ec7889f082b552e3728968adda0f526ab81bc3ad3c3d",
+        "Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+        "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+        "src/cli.rs": "f536accd8eec104178dd589b3e3d2605a1acd288c952396b29f1dedc452723e5",
+        "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+        "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+        "src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+        "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+        "src/tui/app.rs": "8f2df236b5ad5668041a2fd372ee29922120b06f8f46c5acb6412fc7fb44650b",
+        "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+        "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+        "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+        "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+        "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+        "src/vault.rs": "521b61d713890c93a032670077857c59f910b8c1d0be3387698fd0753956668a"
+      },
+      "runner_sha256": null,
+      "cli_artifact": null,
+      "stdout_sha256": "265ddc325f85a25f7a919929f0016fa7546207f15bac882194725cd2816b523d",
+      "stderr_sha256": "0c3ba00aee88bf47ba883397f749f928a3b67d5b13df5aaa8c7947314b286f7a",
+      "rust_test_summaries": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 65 filtered out; finished in 3.01s"
+      ],
+      "python_test_count": null
+    },
+    "tui_delete_green": {
+      "receipt_path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T031526193150Z-test.json",
+      "receipt_sha256": "6c7744acf7b487908bd8b2a9ce3507b6b8f144c96ed6b5ac242494f901d3491c",
+      "command": [
+        "/opt/rust/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "failed_delete_restores_entry_order_and_dirty_state",
+        "--",
+        "--exact",
+        "tui::app::tests::failed_delete_restores_entry_order_and_dirty_state"
+      ],
+      "exit_code": 0,
+      "network": false,
+      "source_sha256": {
+        "Cargo.lock": "951355a4c8c8ab613042ec7889f082b552e3728968adda0f526ab81bc3ad3c3d",
+        "Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+        "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+        "src/cli.rs": "f536accd8eec104178dd589b3e3d2605a1acd288c952396b29f1dedc452723e5",
+        "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+        "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+        "src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+        "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+        "src/tui/app.rs": "a35bd377043fed9a17423ee5bdf1545663ee56b792c4d6a76a5c1a17ea24fe61",
+        "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+        "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+        "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+        "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+        "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+        "src/vault.rs": "521b61d713890c93a032670077857c59f910b8c1d0be3387698fd0753956668a"
+      },
+      "runner_sha256": null,
+      "cli_artifact": null,
+      "stdout_sha256": "42a8f276ddfc021e77e9eecf41d71f3cecd2b1ec479ce814b9f74aeea6429f7e",
+      "stderr_sha256": "d891f412d11eec4575e77846c69bf426fdf9bbcfca648b5800dba2d76738fbbb",
+      "rust_test_summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 65 filtered out; finished in 5.79s"
+      ],
+      "python_test_count": null
+    },
+    "cli_edit_red": {
+      "receipt_path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T031940483906Z-cli-regressions.json",
+      "receipt_sha256": "737158bd4e88839f13dbdb9f9318e1b582dd3a8e4ffeab896a16b9b819c590a2",
+      "command": [
+        "/usr/bin/python3",
+        "/repo/tests/cli_storage_regression.py",
+        "/target/debug/credman"
+      ],
+      "exit_code": 1,
+      "network": false,
+      "source_sha256": {
+        "Cargo.lock": "951355a4c8c8ab613042ec7889f082b552e3728968adda0f526ab81bc3ad3c3d",
+        "Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+        "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+        "src/cli.rs": "f536accd8eec104178dd589b3e3d2605a1acd288c952396b29f1dedc452723e5",
+        "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+        "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+        "src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+        "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+        "src/tui/app.rs": "a35bd377043fed9a17423ee5bdf1545663ee56b792c4d6a76a5c1a17ea24fe61",
+        "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+        "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+        "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+        "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+        "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+        "src/vault.rs": "521b61d713890c93a032670077857c59f910b8c1d0be3387698fd0753956668a",
+        "tests/cli_storage_regression.py": "eb9c3be3eeb540e4c92b282805308390d6d10dc24d3383ac02ea43ef6b08a668"
+      },
+      "runner_sha256": null,
+      "cli_artifact": null,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "fc01d9634f4a7ba145bc68f3e8889b4c73042aad4cc443ca55991ac8f0b03529",
+      "rust_test_summaries": [],
+      "python_test_count": 2
+    },
+    "cli_edit_green": {
+      "receipt_path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T035328197697Z-cli-regressions.json",
+      "receipt_sha256": "3409a7862ee630a45f30386f6b30d7a0b269734e3340f9a59b02022db74acff2",
+      "command": [
+        "/usr/bin/python3",
+        "/repo/tests/cli_storage_regression.py",
+        "/repo/.verified-bin/credman"
+      ],
+      "exit_code": 0,
+      "network": false,
+      "source_sha256": {
+        "Cargo.lock": "951355a4c8c8ab613042ec7889f082b552e3728968adda0f526ab81bc3ad3c3d",
+        "Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+        "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+        "src/cli.rs": "7588e6ef7685f89536d69fe585a6386fc8687a6609c1277825d23bc973452c39",
+        "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+        "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+        "src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+        "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+        "src/tui/app.rs": "a35bd377043fed9a17423ee5bdf1545663ee56b792c4d6a76a5c1a17ea24fe61",
+        "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+        "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+        "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+        "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+        "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+        "src/vault.rs": "2ed5f105eebfd99b5926dafcc9f4438d4eed2c5d5216ea80c42258df2d06cdc2",
+        "tests/cli_storage_regression.py": "eb9c3be3eeb540e4c92b282805308390d6d10dc24d3383ac02ea43ef6b08a668"
+      },
+      "runner_sha256": "65a4cf3c9e84a344ca931ae039c477834909e45970c2ce4757b9303949a1a034",
+      "cli_artifact": {
+        "cargo_executable": "/target/debug/credman",
+        "executed_snapshot": "/repo/.verified-bin/credman",
+        "sha256": "192e2c1d67505046cd3a0722327c9661fb365c1b97cb9bca82cc0709b34bee44",
+        "profile": {
+          "opt_level": "0",
+          "debuginfo": 2,
+          "debug_assertions": true,
+          "overflow_checks": true,
+          "test": false
+        }
+      },
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "ebccda41c04ec6d2be3a9ea5df9c2e0424b534eb6bade1b036e95f1a06891900",
+      "rust_test_summaries": [],
+      "python_test_count": 2
+    },
+    "final_rust_suite": {
+      "receipt_path": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T035505823470Z-test.json",
+      "receipt_sha256": "9d0f85b5ca40d536aa8e735fa71b56d142edabcea21d94103a53bc975dadf41c",
+      "command": [
+        "/opt/rust/bin/cargo",
+        "test",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "network": false,
+      "source_sha256": {
+        "Cargo.lock": "951355a4c8c8ab613042ec7889f082b552e3728968adda0f526ab81bc3ad3c3d",
+        "Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+        "src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+        "src/cli.rs": "7588e6ef7685f89536d69fe585a6386fc8687a6609c1277825d23bc973452c39",
+        "src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+        "src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+        "src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+        "src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+        "src/tui/app.rs": "a35bd377043fed9a17423ee5bdf1545663ee56b792c4d6a76a5c1a17ea24fe61",
+        "src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+        "src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+        "src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+        "src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+        "src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+        "src/vault.rs": "2ed5f105eebfd99b5926dafcc9f4438d4eed2c5d5216ea80c42258df2d06cdc2",
+        "tests/cli_storage_regression.py": "eb9c3be3eeb540e4c92b282805308390d6d10dc24d3383ac02ea43ef6b08a668"
+      },
+      "runner_sha256": "65a4cf3c9e84a344ca931ae039c477834909e45970c2ce4757b9303949a1a034",
+      "cli_artifact": null,
+      "stdout_sha256": "f52137c35f63b54758a96d96470e2032d50c5ab8b658860404e660e161b31b58",
+      "stderr_sha256": "6edf98f5fed94858112217d498471645b27717e889c7070fa445d9c51c5eede8",
+      "rust_test_summaries": [
+        "test result: ok. 66 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 58.83s"
+      ],
+      "python_test_count": null
+    }
+  },
+  "runner_guards": {
+    "exit_code": 0,
+    "tests_passed": 8,
+    "source_sha256": "3f6698db76a0b13f666d3c9948403586581ec1d362fbce326499bf2b7180ae3c",
+    "scope_note": "Eight runner/controller checks. Fetch queue unit test stubs the Cargo boundary; real fetch and Rust/CLI execution are separate receipts."
+  },
+  "lint_comparison": {
+    "strict_clippy_baseline_exit": 101,
+    "strict_clippy_current_exit": 101,
+    "unique_preexisting_clippy_diagnostics": 13,
+    "new_clippy_diagnostics": 0,
+    "format_baseline_exit": 1,
+    "format_current_exit": 1,
+    "preexisting_format_hunks": 25,
+    "new_format_hunks": 0,
+    "scope": "Compared complete Clippy diagnostic multisets by code/file/columns/highlighted source, ignoring shifted line numbers. No warnings suppressed. Format hunks were compared against the original commit.",
+    "clippy_multisets_equal": true,
+    "diagnostic_instances_across_targets": 30,
+    "diagnostic_groups_with_column_positions": 13
+  },
+  "source_and_tooling_sha256": {
+    "src/vault.rs": "2ed5f105eebfd99b5926dafcc9f4438d4eed2c5d5216ea80c42258df2d06cdc2",
+    "src/tui/app.rs": "a35bd377043fed9a17423ee5bdf1545663ee56b792c4d6a76a5c1a17ea24fe61",
+    "src/cli.rs": "7588e6ef7685f89536d69fe585a6386fc8687a6609c1277825d23bc973452c39",
+    "scripts/check-isolated.py": "65a4cf3c9e84a344ca931ae039c477834909e45970c2ce4757b9303949a1a034",
+    "tests/cli_storage_regression.py": "eb9c3be3eeb540e4c92b282805308390d6d10dc24d3383ac02ea43ef6b08a668",
+    "tests/check_isolated_runner.py": "3f6698db76a0b13f666d3c9948403586581ec1d362fbce326499bf2b7180ae3c"
+  },
+  "specialist_patch_review": {
+    "status": "received and parent-verified",
+    "report_path": "/home/nick/.hermes/profiles/security-engineer/engineering/credman-storage-implementation-20261024-v1/review.md",
+    "sha256": "aa5c4c56db15446055d39193aab183916049feab140377771342e157a8db3b0b",
+    "reviewed_code_commit": "a192469",
+    "runtime_unchanged_since_review": true,
+    "verdict": "No new runtime regression identified in original source review. Both runner findings fixed and tested by parent; independent runner-only closure passed with no findings.",
+    "resolved_runner_findings": [
+      "Fetch-only no longer queues execution; separately exercised real fetch generated one fetch receipt only",
+      "Custom CLI Cargo arguments rejected; current Cargo executable copied read-only and SHA-256 bound to actual CLI checks"
+    ],
+    "runner_closure_review": {
+      "status": "passed",
+      "delegation_id": "deleg_fa99159b",
+      "reviewed_commit": "b4ea916",
+      "findings": [],
+      "scope": "Independent source-only closure review of the two runner findings; no independent execution or reassessment of unchanged runtime fixes"
+    },
+    "review_scope": "Read-only source review, not execution, crypto certification or production agent isolation"
+  },
+  "unchanged_scope": [
+    "Cargo.toml/Cargo.lock",
+    "encryption/KDF/format",
+    "real vaults/credentials/accounts/services"
+  ],
+  "remaining_limits": [
+    "fixed-name temp and generic publish errors",
+    "no parent-directory sync or power-loss proof",
+    "rename EIO/network filesystem ambiguity not resolved",
+    "agent API/grants/service isolation and migration not implemented"
+  ],
+  "no_push_or_deployment": true,
+  "fetch_only_verification": {
+    "actual_fetch_only_exit": 0,
+    "generated_commands": [
+      [
+        "/opt/rust/bin/cargo",
+        "fetch",
+        "--locked"
+      ]
+    ],
+    "no_build_test_commands_generated": true,
+    "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261025T035505626718Z-fetch.json"
+  }
+}

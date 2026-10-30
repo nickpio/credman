@@ -1,0 +1,164 @@
+{
+  "schema": 1,
+  "scope": "Agent-first application; remove unused terminal prototype and v1 compatibility",
+  "status": "scoped_verification_passed",
+  "source_backup": {
+    "path": "/home/nick/.local/share/credman-refactor/20261026T004035Z/before.tar.gz",
+    "sha256": "e799c66a6f1caffbda05b119304f01821cee38e8fd669363f4df34ce9d74e229",
+    "files": 75,
+    "git_head": "b4ea916fe5807569755df110e3ac9c5961c16753",
+    "branch": "agent-native/storage-foundation",
+    "removed_file_count": 14
+  },
+  "entrypoints": [
+    "serve",
+    "admin backup",
+    "admin restore",
+    "admin recover"
+  ],
+  "removed_files": [
+    "src/agent/provenance.rs",
+    "src/agent/storage/copies.rs",
+    "src/agent/storage/copy_tests.rs",
+    "src/backup.rs",
+    "src/clipboard.rs",
+    "src/model.rs",
+    "src/tui/app.rs",
+    "src/tui/input.rs",
+    "src/tui/mod.rs",
+    "src/tui/ui.rs",
+    "src/usb.rs",
+    "src/validation.rs",
+    "src/vault.rs",
+    "tests/cli_storage_regression.py"
+  ],
+  "lockfile": {
+    "packages_before": 227,
+    "packages_after": 116,
+    "packages_removed": 111,
+    "new_or_updated_packages": []
+  },
+  "executed_checks": {
+    "compile": {
+      "exit_code": 0,
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261026T004621206652Z-check.json",
+      "runner_delta": "Compile preceded two label-only runner edits, verified by exact reverse-digest reconstruction. Executed source matches current source; later Rust/native checks use current runner."
+    },
+    "agent_rust": {
+      "exit_code": 0,
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261026T005538806955Z-test.json",
+      "passed": 63,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 26
+    },
+    "native_acceptance": {
+      "exit_code": 0,
+      "receipt": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/logs/20261026T010012591605Z-agent-program-tests.json",
+      "passed": 9,
+      "elapsed_seconds": 90.396,
+      "binary_sha256": "eecbc3db8a5c43d4a82b1835c6a2969cc39c82cbf13e96e908c6730164a18b6c"
+    },
+    "controller_guards": {
+      "exit_code": 0,
+      "passed": 3,
+      "observed_elapsed_seconds": 0.463,
+      "evidence": "Actual parent terminal execution; not a synthetic runner receipt",
+      "command": [
+        "python",
+        "-B",
+        "tests/check_isolated_runner.py",
+        "RunnerGuards.test_executable_mode_rejects_custom_cargo_arguments",
+        "RunnerGuards.test_revision_cannot_use_current_executable_fixture",
+        "RunnerGuards.test_current_snapshot_includes_new_source_and_declared_python_fixtures"
+      ],
+      "fixture_sha256": "84c69ff62e380a30a28faa0718a50841f9ac3830eb375251d234ec34ecc04c7b"
+    },
+    "documentation": {
+      "documents_checked": 10,
+      "anchors_and_fences": "passed",
+      "git_diff_check": "passed",
+      "local_links_checked": 43
+    }
+  },
+  "executed_source_sha256": {
+    "Cargo.toml": "e402c95758adbb5393101cdf3c624e0ab521969158988fdb7f0bc4b1993c9daa",
+    "Cargo.lock": "7b7c18b0b5b9bf90d8c692b83a85d4e4bcae807bdb6e5e7f28b83bd1ee8bf608",
+    "src/agent/mod.rs": "918a3d0f3e6c4514d1946e37919f9c47a869c7b367fb33a2e17a91a9c55427fc",
+    "src/agent/snapshot.rs": "4c2e72e971d580d1f005b402ca24b035b24435417dc6a4ce4100fd0cb6810d23",
+    "src/agent/storage.rs": "b6e060a53464a3c70051c20dc236fdb0ba9cbf213cdc041486d789afcb907e27",
+    "src/agent/storage/backup.rs": "e71624daa036846fc8d4a52e377e908f2abd4760e1456981986a1d8d08a7fe7f",
+    "src/agent/storage/backup/tests.rs": "0f4cb3815040bf523ee856f1e6b563d3c47cb9524d54dc9b63207adf821dbe6c",
+    "src/agent/storage/final_review_tests.rs": "5341a3d20f893f05cb0a5531f19a53d8d6679b1d10c70a8842e90ee449734fac",
+    "src/agent/storage/recovery.rs": "91393de100b7e19e4e6fef5230fbe25336600e6d03539dfffc0e4800d17068b5",
+    "src/agent/storage/recovery_tests.rs": "bb320e740d0d73ba346a37ca79a3889d3268e76a59c314f471f216f4cc4b527f",
+    "src/agent/storage/reviewed_repairs_tests.rs": "c764e5a24079731fbcdc279c5f77968a1e424b8520f31745ed9c4e20cf5a431d",
+    "src/agent/storage/tests.rs": "ee0fd73088a49b5d22f63587d705e8f75cfef76a2426a303d1ea960b3808dc86",
+    "src/agent/storage/workflow.rs": "fd782d2a3f6a00f7d14e47cee8ecbab5942c6415a96baa0e4011b1b950baf92b",
+    "src/agent/storage/workflow_tests.rs": "942a0aa39bee1c6bbf6a1fb6408ed6a97c27d4fc8e37d0e62c7987155a73ec5a",
+    "src/agent/tests.rs": "38a44898094863d8ab44982e6124d002ce9649e3b2f45bec37fb088c00329882",
+    "src/agent_adapter.rs": "9d13b168d0a17b529020960d0b6053d00a381210ca3ee1ce736ac2cc6c196216",
+    "src/agent_admin.rs": "182a4ef8c33bcea8b2c4ecc41d49caa83ed08d9fc7c1bef7164b85587efd78c7",
+    "src/agent_broker.rs": "06a7d5073e37cf43d51ba77aadd40832801b23fdbd31818a93d0070282fe61b9",
+    "src/agent_ipc.rs": "2eaf6c582277e7273fa5bca881378dcbb2e1b7c8e0854c2f5d9500d1b3a6ea1e",
+    "src/cli.rs": "54a0eeeb0158c71d327f532a7f7a1d79f0a16ef95fdd33ae55ba4934572f435b",
+    "src/crypto.rs": "65aa231f47872ea29102704d382aca5d3c529fd0148d6a8c7bb67d96327afd40",
+    "src/main.rs": "ab886f48e97560834c33b822229a694707cfb5cb872ba23e626cee0ee820fa11",
+    "tests/agent_program_regression.py": "0eb6c18554e5627f4967f8bc05aa6179ce795f756cfcb57e3bdd7b177f5b9f8d",
+    "examples/two_agent_demo.py": "ac22a9a93ebb5b322434cb2ad0fcb1ad3435de245e9be3c921623289d6969ff2",
+    "tests/test_fake_login_app.py": "e1a9741322412be7146baceffa429cdb8b6765e1e3c8236f60a306c1c9885334",
+    "tests/fake_login_app.py": "c08c67db44751837fc4e7d565808f561024234884f66b397a43ae90897ad5759",
+    "tests/test_workload_launcher.py": "32a741e2a829aa736319e5e9777aa968400dd3ecaa72147c1a8b470b20943cd9",
+    "tests/workload_launcher.py": "ea5406d696abb54653f0872c75382e3a2a3d4965c3eafc7043a8210c6d8b3c51"
+  },
+  "runner_sha256": "9e201dddb4ac84f54eb22d61fe96404d1bf36ea4e47eb2f2a25351bfb8a6e6f8",
+  "unchanged_source_and_historical_evidence": {
+    "src/agent_broker.rs": "06a7d5073e37cf43d51ba77aadd40832801b23fdbd31818a93d0070282fe61b9",
+    "src/agent_ipc.rs": "2eaf6c582277e7273fa5bca881378dcbb2e1b7c8e0854c2f5d9500d1b3a6ea1e",
+    "src/agent_adapter.rs": "9d13b168d0a17b529020960d0b6053d00a381210ca3ee1ce736ac2cc6c196216",
+    "tests/fake_login_app.py": "c08c67db44751837fc4e7d565808f561024234884f66b397a43ae90897ad5759",
+    "tests/workload_launcher.py": "ea5406d696abb54653f0872c75382e3a2a3d4965c3eafc7043a8210c6d8b3c51",
+    "docs/agent-native/demo/evidence.json": "82b06ff0a6ddd7e5e7c370f5756a0b2761de5b408fa8ddeea3ab7f181dfd4ec4",
+    "docs/agent-native/demo/two-agent-demo.html": "6bbb36767bfc0771259126d40826f7393c48723b8aabbe41aff38ba798e3e605",
+    "docs/agent-native/program-verification.json": "50048b1f8af4b887e14b3a06f9aff16de32f150a7c074c9f1420b25475f953aa"
+  },
+  "working_binary": "/home/nick/.hermes/cache/scratch/credman-storage-20261024/target/debug/credman",
+  "not_run": [
+    "Unchanged adapter and transport unit suites",
+    "Unchanged independent fake-application and worker-launcher suites",
+    "Full strict lint and formatting checks",
+    "Fresh two-real-bot replay or live provider signup"
+  ],
+  "limits": [
+    "Same-UID host-capable bots are not isolated principals",
+    "Per-worker production resource quotas remain absent",
+    "Current private destination is a trusted fake application",
+    "Old prototype snapshots containing removed copy fields intentionally fail closed",
+    "No real vault access, deployment, commit, push or installed-service change",
+    "Existing bot workspace directories and ancestors were not removed or relocated"
+  ],
+  "verified_at_utc": "2026-10-26T01:09:44.710387+00:00",
+  "independent_review": {
+    "passed": true,
+    "scope": "source-only security and correctness delta against verified pre-task archive",
+    "path": "/home/nick/.local/share/credman-refactor/20261026T004035Z/independent-review.json",
+    "sha256": "0916a142ac317b5302ca79da9713de5eb46eab7aba22d58cdd39383eaee92f89",
+    "reviewed_files": 23,
+    "changed_source_files_covered": 22,
+    "security_findings": [],
+    "logic_findings": [],
+    "runtime_execution": "not performed by reviewer; independently recorded parent checks above"
+  },
+  "cleanup": {
+    "source_files_only": true,
+    "directories_removed": [],
+    "bot_workspaces_relocated": [],
+    "real_vaults_modified": [],
+    "preserved": "Verified pre-task source archive, current reusable code/tests, unchanged historical execution evidence and all existing workspace directories"
+  },
+  "git_effects": {
+    "commit": false,
+    "push": false
+  }
+}

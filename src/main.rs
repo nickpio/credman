@@ -1,12 +1,12 @@
-mod backup;
+mod agent;
+mod agent_bridge;
+mod agent_mcp;
+mod agent_admin;
+mod agent_broker;
+mod agent_https;
+mod agent_ipc;
 mod cli;
-mod clipboard;
 mod crypto;
-mod model;
-mod tui;
-mod usb;
-mod validation;
-mod vault;
 
 fn main() {
     if let Err(e) = cli::run() {

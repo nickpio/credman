@@ -1,0 +1,52 @@
+{
+  "verified_at": "2026-10-25T02:31:16.322652+00:00",
+  "phase": "Design only; vault-first proposal with completed specialist reviews",
+  "runtime_or_manifest_changes": false,
+  "tracked_changes": [
+    "README.md"
+  ],
+  "markdown_files_checked": 11,
+  "relative_links_checked": 31,
+  "json_and_whitespace": "passed",
+  "citation_verification": "info: stats: 57 prose sentence(s), 3 with declared provenance (5%) \u2014 3 cited, 0 marked [unverified] (a sentence may be both); 4 distinct source(s) cited, 4 in ledger (4 with evidence quotes)\ncitations OK\n",
+  "public_evidence": "Prior verified primary-source quotes reused, not re-fetched",
+  "specialist_review_receipt": "specialist-review-verification.json",
+  "runtime_tests_or_real_vault_access": "not performed",
+  "current_design_hashes": [
+    {
+      "path": "docs/agent-native/DECISIONS.md",
+      "sha256": "9bd5aea1a395d2a47bed5330b1d7e4309e1dc4bd65c45396ced908f1ab22f893"
+    },
+    {
+      "path": "docs/agent-native/IMPLEMENTATION-PLAN.md",
+      "sha256": "7ec1c1c0b467f8355e4ee6da4c76ee6c93eabade16edaed6a76a85a24b6e8138"
+    },
+    {
+      "path": "docs/agent-native/README.md",
+      "sha256": "545c7e01613b5cb7d07b9fa396e85074a2bf03385da6573fe0636412dfc9340a"
+    },
+    {
+      "path": "docs/agent-native/SPECIALIST-REVIEW.md",
+      "sha256": "e3d271482607372c6d48ce30976d54583ec9297be6b9d565aec2f153e9e647fa"
+    },
+    {
+      "path": "docs/agent-native/THREAT-MODEL.md",
+      "sha256": "5c405fdee6c989bf42a077e46e3e13d8b76aab7fd12867c596a0060e44c0c1df"
+    },
+    {
+      "path": "docs/agent-native/source-verification.json",
+      "sha256": "f6b3507ada0b162a3331a49f0af745279b345a18b18b84e41787df4338013e89"
+    },
+    {
+      "path": "docs/agent-native/sources.json",
+      "sha256": "395904d709cac2a0be94bfccb8d5c60a852d9f99c8a9023e3e56c64593f5bef6"
+    },
+    {
+      "path": "docs/agent-native/specialist-review-verification.json",
+      "sha256": "592e58c7f6793c01ab3cdc0f2e21b0b5c7a2164a197bc9ec9eeb196df1f4a50b"
+    }
+  ],
+  "status": "Historical design-phase check before storage implementation; not current runtime verification",
+  "historical_code_baseline": "510c2a0",
+  "current_execution_receipt": "storage-verification.json"
+}

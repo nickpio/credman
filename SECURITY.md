@@ -1,150 +1,71 @@
 # Security model
 
-credman is a single-user, local credential manager. It has no network service, synchronization service, browser extension, or background unlock agent. Its security boundary is the local operating-system user account.
+Credman is a user-owned credential vault for agent tasks. A trusted supervisor unlocks the store, binds private channels to principals, and supplies human approval separately. The current Linux runtime is a bounded local owner with authenticated Unix-socket admission and stdio MCP frontends, not a production provider installation.
 
-## Protected assets
+## Protected assets and trusted components
 
-- The 12-word BIP39 seed phrase is the root secret and is never stored by credman.
-- Vault entries are plaintext only while a credman process is unlocked.
-- The encrypted vault, its salt, nonce, format metadata, and advisory lock file are stored on disk.
-- A copied password temporarily crosses into the desktop clipboard service.
+The root seed, derived keys, credential fields, and sensitive metadata require protection. Records, task approvals, grants, revisions, retry state, delivery attempts, and audit events are persisted together inside encrypted state.
 
-The seed phrase and an encrypted vault together provide full access. Losing the seed makes the vault unrecoverable.
+The supervisor, operating-system account, kernel, binary, toolchain, and configured destination remain trusted. Knowing both the seed and encrypted store permits offline access. Losing the seed without another usable backup secret makes that encrypted copy unrecoverable.
 
-## Encryption at rest
+Host-capable agents running under the human's Unix UID are not isolated principals. Role names, JSON identity fields, and role-specific bridge sockets do not authenticate a hostile host process. A production integration must enforce the intended worker boundary in its actual launch path.
 
-credman derives a 256-bit key from the normalized seed phrase and a random 16-byte salt using Argon2id. Vault JSON is encrypted and authenticated with AES-256-GCM using a fresh 12-byte nonce on every save. The salt, nonce, Argon2 parameter metadata, and ciphertext are stored in the vault file.
+## Encryption and private resources
 
-Authenticated decryption rejects an incorrect seed and modified ciphertext. Unlock and backup decrypt derive with the Argon2 parameters stored in the file header (within sanity bounds), so existing vaults remain readable if future builds raise the defaults used for new files.
+The shared crypto implementation uses Argon2id, a random 16-byte salt, a 256-bit key, and AES-256-GCM with a fresh 12-byte nonce for each encrypted image. Header values and lengths are bounded before expensive processing. Backup envelopes authenticate their version, secret kind, KDF parameters, and salt inside encrypted plaintext.
 
-Sensitive key, seed, clipboard, and entry buffers use `zeroize` where practical. This reduces remnants after normal drops; it does not guarantee protection from process inspection, swap, crash dumps, or a compromised operating system.
+The seed and supervisor configuration enter through distinct inherited descriptors above stdin, stdout, and stderr. Workload and administration sockets cannot alias. Transferred descriptors are close-on-exec, and unlisted descriptors are closed. There is no seed argument, environment-variable unlock, interactive reveal, clipboard, or USB helper.
 
-## Files and permissions
+Keys and sensitive buffers use zeroization where practical. This does not prove that copies cannot remain in process memory, swap, crash dumps, or another trusted component.
 
-The default paths are:
+## Files, ownership, and durability
 
-```text
-~/.credman/vault
-~/.credman/vault.lock
-```
+A store uses an explicit absolute directory, owned by the effective Unix user with mode `0700`. Directory traversal rejects symlinks. Anchored file access requires owned regular single-link files with mode `0600` and refuses final symlinks.
 
-On Unix:
+The agent-store files include `state.v2`, `owner.lock`, and retained publication or recovery evidence such as `pending.v2` and `recovery.v2`. An exclusive advisory lock is held for the complete owner session. Do not replace or delete lock or evidence files to bypass access checks.
 
-- newly created vault directories use mode `0700`;
-- the managed default `~/.credman` directory is corrected to `0700`;
-- vault, temporary, and lock files use mode `0600`;
-- an existing parent of a custom `--vault` path is not chmodded because it may be intentionally shared.
+Publication uses unique private temporary files, file sync, atomic publication, and directory sync. A definite prepublication failure differs from an ambiguous publication result. Ambiguity freezes access for explicit human recovery instead of reusing stale in-memory authority. Filesystem guarantees remain platform-dependent; this is local-filesystem behavior, not a power-loss or network-filesystem proof.
 
-Each save writes a private temporary file, calls `sync_all`, and atomically renames it over the vault. Backups should copy the completed `vault` file, not `vault.tmp` or `vault.lock`.
+## Client attachment and MCP identity
 
-## Concurrent access
+Only the private human administration channel issues or revokes client sessions. A separately generated random token authenticates attachment; record, task, grant, and session UUIDs do not. The owner consumes the token once and binds the connection to a human-selected principal, owner/workspace scope, task allowlist, and expiry. Issuance does not approve a task. Restart, disconnect, expiry, and revocation do not create reconnect authority.
 
-credman takes a non-blocking exclusive advisory lock on `<vault>.lock` before reading or replacing a vault and holds it for the complete unlocked session. This includes read-only commands because every command decrypts the whole vault and the simple single-session rule avoids inconsistent behavior.
+The session document is an owned mode-`0600` regular single-link file under a private mode-`0700` directory. The proxy refuses unsafe or symlinked paths and verifies the private owner endpoint. Harness configuration contains a file path, never the seed or attachment token. A host-capable same-UID process can still steal a readable token; this is not OS isolation.
 
-If another credman process owns the lock, the new process fails immediately with `vault is in use by another credman process`. It does not wait and does not overwrite the active session's eventual save.
+MCP initialization labels and tool arguments cannot choose principal or administration authority. A client that reuses one MCP process across conversations shares that configured session identity. Per-conversation authentication is not inferred. Configuration merging and diagnostic startup can launch a client earlier than expected; a probe must use its own issued attachment.
 
-The lock is released by the operating system when the process exits or crashes. The lock file itself may remain and is not evidence of an active process. Do not delete it while credman is running: replacing the path could allow two processes to lock different files.
+## Agent authority and secret disclosure
 
-Advisory lock guarantees depend on the filesystem. A local filesystem is recommended; network filesystems may provide weaker or implementation-specific locking.
+Unlocking creates no task authority. Each request is bound to the context established by its private channel, not an identity chosen in request JSON.
 
-## Seed and terminal exposure
+Tasks restrict owner, principal, workspace, service, origin, fields, permissions, destinations, and expiry. Grants cannot widen the issuer's approved delegation. Grants pin secret-value versions, and cached requests recheck current authority before returning their retained result.
 
-Unlock prompts mask each seed word and show progress toward 12 words. `Ctrl+R` temporarily reveals or hides the phrase. The TUI preserves failed input for correction but returns it to the masked state. Seed buffers are zeroized after successful use and when the TUI exits.
+`SecretUse` sends authorized values to an approved fixed HTTPS destination and returns only delivery status and references. The destination receives the authorized secret by design. `SecretRead` does not authorize MCP disclosure: the MCP catalog has no read tool, and the owner rejects raw reads from workload peers. A trusted human can import or read secrets through the private administration channel when the task permits it. Revocation blocks future vault access; it cannot recall a value already sent to a destination or rotate an upstream password.
 
-After `init` / `restore` confirmation you may optionally write down a **seed fingerprint** (first 4 hex characters of SHA-256 over the normalized phrase). This is advisory only — credman never stores the seed or the fingerprint. It helps you later check that you still have the same phrase without comparing all 12 words from memory.
+The fake-application adapter is removed. Private use performs only a fixed verified-HTTPS GET with Basic or Bearer authentication. Destination service and origin must match the approved task. The broker prepares the child before final authorization. The handoff callback supplies the private configuration after authorization; a cached attempt does not dispatch again. Response body, headers, and curl stderr are discarded, not scanned. Delivery status does not prove login, registration, or account creation. Unknown outcomes are not automatically redispatched. An untrusted agent report is not verified login evidence. There is no portable private injection guarantee across the harnesses.
 
-`--seed <phrase>` is available for scripting. It may appear in shell history and process listings; prefer interactive entry for real secrets.
+## Input and output boundaries
 
-Initialization must display the generated seed once. Terminal emulators, screen sharing, recording, and scrollback can retain that display. Initialize in a private terminal, write the seed down offline, and close or clear the terminal according to the terminal emulator's behavior.
+Workload transport uses bounded length-prefixed JSON with duplicate-key, depth, schema, and deadline checks. Identity-widening request fields are rejected. Oversized generated responses return a bounded error; malformed or poisoned channels close.
 
-Commands that print passwords, including `get --password-only` and `list --secrets`, intentionally expose them to standard output. Avoid shell tracing, terminal recording, shared sessions, and untrusted log collectors.
+State and backup decoding enforce strict schemas, bounds, and cross-record invariants. Removing the unused prototype formats does not add a permissive migration reader. Old attachments and unknown fields are not silently discarded.
 
-## Clipboard lifecycle
-
-Copied passwords have a 30-second lifetime:
-
-1. credman writes the password to the system clipboard.
-2. CLI commands start a hidden helper process and pass the expected password over piped standard input. The value is not placed in process arguments or environment variables.
-3. The TUI tracks the expected password and shows the remaining lifetime in its status line.
-4. At expiration, credman reads the clipboard and clears it only if it exactly matches the expected password.
-5. If the user copied another value, credman leaves that newer value untouched.
-
-Quitting the TUI attempts an immediate compare-and-clear. A new TUI copy replaces the previous timer.
-
-Clearing is best effort. Clipboard history managers may retain old entries, another process in the same desktop session may read the value before expiration, and a headless or restricted display session may prevent the helper from reconnecting. Disable clipboard history for sensitive workflows or use direct password entry when that risk is unacceptable.
-
-## Input and vault limits
-
-Validation runs when CLI or TUI data is saved, before serialization, after decryption, and before oversized vault files are read.
-
-| Data | Limit |
-|------|-------|
-| Generated password | 8–128 characters |
-| Entries | 10,000 |
-| Name | 256 characters and nonblank |
-| Username | 256 characters |
-| Password | 4,096 characters |
-| URL | 2,048 characters |
-| Notes | 8,192 characters |
-| Tags | 32 per entry |
-| Tag | 64 characters |
-| Decrypted vault JSON | 16 MiB |
-| Encrypted vault file | 32 MiB |
-
-Text limits count Unicode characters. Vault-size limits count bytes. The TUI stops accepting form characters at its field limit; all paths still perform authoritative validation before persistence.
-
-These bounds prevent accidental or crafted local files from causing unbounded allocations. They are not a substitute for operating-system storage quotas.
-
-## Threat boundaries
-
-credman is designed to protect against:
-
-- theft of the encrypted vault without the seed;
-- accidental concurrent credman sessions overwriting each other;
-- routine shoulder surfing when masked input is used;
-- indefinite clipboard persistence when the desktop permits compare-and-clear;
-- oversized or malformed vault data exceeding documented bounds.
-
-credman does not protect against:
-
-- malware, debuggers, or another process with equivalent user privileges while the vault is unlocked;
-- keyloggers, compromised terminal emulators, or clipboard managers that retain history;
-- an attacker who has both the seed and vault;
-- a replaced or malicious credman binary;
-- physical coercion or disclosure of the offline seed;
-- deletion, rollback, or corruption of the vault file.
+Offline backup writes only to a validated, empty private regular file or private pipe through an explicit descriptor. Output cannot alias an input resource. Offline administration stdout is not a backup or plaintext-export channel. MCP stdout carries only protocol messages and approved nonsecret metadata; it never returns credential secret fields. Authorized human secret reads use the separate private administration channel. Invalid JSON, unsupported methods, and errors must not echo credential or attachment input. Seed and backup-secret text inputs are capped at 4096 bytes, identity at 64 KiB, and encrypted backup input at 32 MiB.
 
 ## Backup and recovery
 
-Keep the seed phrase offline and separate from encrypted vault backups. Test restoration with a copied vault before relying on a backup process.
+Encrypted backups support a seed or a separate passphrase. The destination store seed can differ from the backup secret. Restore validates the entire backup before publication, refuses an existing destination image, revokes previous tasks and grants, and requires fresh approval. Restored records cannot register again, including after patches, restart, or recovery.
 
-To restore:
+Explicit recovery requires human context, matching scope, the seed, and valid retained encrypted evidence. Recovery revokes authority and resolves unfinished delivery outcomes conservatively. Tests with crafted journals and injected publication failures do not reproduce arbitrary disk failure or power loss.
 
-1. place the encrypted backup at the intended vault path;
-2. ensure no credman process is using that vault;
-3. run `credman restore` (or `credman --vault /path/to/vault restore`);
-4. enter the matching seed phrase to verify decryption.
+Keep encrypted backups and their secrets separate. An administrative recovery command does not recover a lost seed or authenticate the human who supplied JSON identity labels. Those responsibilities remain with the trusted integration.
 
-If no vault file is present, `credman restore` can create a new empty vault from an existing seed. That does not recover previous entries — the encrypted vault backup is required for that. `credman restore --force` overwrites an existing vault with a new empty one.
+## Remaining limits
 
-Do not edit the binary vault, lock, or temporary files manually. There is no seed recovery or reset flow.
+The worker launcher checks a reviewed sandbox path, not arbitrary host-capable agents. Memory, PID, CPU, and tmpfs quotas are not enforced per worker. The runtime does not protect against a compromised host account or kernel, a replaced binary, storage deletion or rollback, or copies made after authorized disclosure. Audit events are bounded records, not a tamper-evident log.
 
-## USB hardware key
-
-On Linux, the encrypted vault may live on a removable volume labeled `CREDMAN`. The stick is a possession factor; the seed remains the only unlock secret and is never written to the stick by credman.
-
-`credman usb prepare` copies the vault and an optional portable binary onto a mounted stick. `credman usb enable` installs a **user-level** systemd poller and launcher scripts under `~/.config/credman/` that open a terminal when that labeled volume appears. The helper does not store the seed, does not unlock the vault, and runs as the logged-in user.
-
-Threat notes:
-
-- Theft of the stick without the seed yields ciphertext only.
-- An attacker with both the stick and the seed has full access (same as any vault copy).
-- Auto-launch on an untrusted host is unsafe: unlocked plaintext lives in process memory on that machine.
-- A replaced `bin/credman` on the stick is equivalent to a malicious binary — prefer a host-installed credman on `PATH`.
-- WSL and environments without systemd user sessions are not supported for auto-launch; preparing a stick still works.
-
-`credman usb disable` removes the helper files and disables the user unit.
+The unused terminal prototype, legacy formats, old import path, command aliases, and fake application adapter are removed. Synthetic data and historical verification records remain evidence only. No real credentials or production provider are part of bridge validation. Current client/protocol evidence is recorded separately from earlier checks.
 
 ## Reporting a security issue
 
-Do not include seed phrases, passwords, vault files, or other credentials in a public report. Provide a minimal reproduction using generated test data and describe the operating system, filesystem, terminal, and clipboard environment involved.
+Do not include seeds, passwords, vault images, or other credentials in a public report. Provide a minimal reproduction with synthetic data and identify the operating system, filesystem, supervisor, worker boundary, and affected request path.

@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-10-25T02:31:16.322652+00:00",
+  "scope": "Completed read-only backend/security design and source reviews. Not runtime verification.",
+  "reviews": {
+    "backend-engineer": {
+      "task_id": "credman-vault-design-20261024-backend-v1",
+      "delivery_id": "bbc3fafe0000ab261302d35a22f0387e746498b70b82b2b6ba455de33abfa2ee",
+      "status": "settled; report read and principal source findings checked",
+      "report_path": "/home/nick/.hermes/profiles/backend-engineer/engineering/credman-vault-design-20261024-v1/review.md",
+      "sha256": "1295f7bd4c126159332c574482378e8b0ca15e433b6a65647a0739735f781f75",
+      "words_whitespace_split": 759,
+      "review_tool_calls_verified": {
+        "read_file": 15,
+        "search_files": 4,
+        "write_file": 1,
+        "patch": 1
+      },
+      "repository_execution_or_out_of_scope_access_in_review_tool_calls": false
+    },
+    "security-engineer": {
+      "task_id": "credman-vault-design-20261024-security-v1",
+      "delivery_id": "8b92e04560433a1c6539b20be5b78041902d827b44208bf4205c8ec39f7f32c8",
+      "status": "settled; report read and principal source findings checked",
+      "report_path": "/home/nick/.hermes/profiles/security-engineer/engineering/credman-vault-design-20261024-v1/review.md",
+      "sha256": "ca97080ab6d337ec91ccd379c72686a66895c8e3c562aeec6c944c9bbf431427",
+      "words_whitespace_split": 714,
+      "review_tool_calls_verified": {
+        "search_files": 4,
+        "read_file": 14,
+        "write_file": 1,
+        "terminal": 1
+      },
+      "repository_execution_or_out_of_scope_access_in_review_tool_calls": false
+    }
+  },
+  "reviewed_input_sha256": {
+    "/home/nick/credman/src/backup.rs": "38a09d083bc212822505e1180d04a8b38a2dc186f389c1b9db4299a843c0e360",
+    "/home/nick/credman/src/cli.rs": "f536accd8eec104178dd589b3e3d2605a1acd288c952396b29f1dedc452723e5",
+    "/home/nick/credman/src/clipboard.rs": "169334b4c6501f78232af414dc251e9eca1cb3f4acb91a9ff683d1c81fe26d2a",
+    "/home/nick/credman/src/crypto.rs": "269cb7e39b414d171a4222e517168a0ee40c83e851c3f0af84c1187008bbf9e5",
+    "/home/nick/credman/src/main.rs": "9edce3dde94827e837e64e520a71e4fb68c31033f8a7a77422e046c67553b4c4",
+    "/home/nick/credman/src/model.rs": "114a8ac0990f1096c916f5d3061db83f7d27006dea4cd46861f386ebbda7f2ce",
+    "/home/nick/credman/src/tui/app.rs": "52a75a1625c65adc37ae713b0475f0b379b2f8fd89c4b3019b7846ed074a778b",
+    "/home/nick/credman/src/tui/input.rs": "3dc7bf9ba9412dd42319de02f135e6465806102510ec6ffaaa9bfd8711f72898",
+    "/home/nick/credman/src/tui/mod.rs": "8e9464b3fa9d317789e42d206b6b31adc0804bd7d2656578effe7c3ed6665465",
+    "/home/nick/credman/src/tui/ui.rs": "4e478011cde13d837af25c98496a792d1a2768a25d61e07d088f95c2411d6bb5",
+    "/home/nick/credman/src/usb.rs": "46d7a3b108789b9bc16c537c3353412275d459b969bbd6febfabba1b2daa0495",
+    "/home/nick/credman/src/validation.rs": "e0db9cecd5c06797b9598f21c30f9d3b4f7cb94c3a5ae20b2b430f844cbc32ce",
+    "/home/nick/credman/src/vault.rs": "7f138f98215d50beaaf26bb8e2e0b6dcf653561718f4f1728ce5873087f1aeff",
+    "/home/nick/credman/docs/agent-native/README.md": "928abe9658d1228c2bf7de64a2d1928582c0cb4307d4f0ff71444922e8c01ca9",
+    "/home/nick/credman/docs/agent-native/DECISIONS.md": "437a43c858b7572f9bdc82cb1de212d6124f6e2350c632978dddd7c5a7611cf2",
+    "/home/nick/credman/docs/agent-native/THREAT-MODEL.md": "b6b11e22db1e4850fc4c727d20690d94923fce514a2d91b767ce66b69f766573",
+    "/home/nick/credman/docs/agent-native/IMPLEMENTATION-PLAN.md": "236d8ca8ac38378587271009bf3a64de4695f2852e53c04da0a77396463e2252",
+    "/home/nick/credman/Cargo.toml": "d2864b4785edc3e381c75e6323fc36ea0f97422b6c55d02ef2adf00424d13fbf",
+    "/home/nick/credman/SECURITY.md": "6876102f2e294dfb00fda518b11cc3c7b8d3f6ef2edfdfd3db06ef5745f4518b"
+  },
+  "inputs_unchanged_when_reports_received": true,
+  "intentional_post_review_document_edits": [
+    "/home/nick/credman/docs/agent-native/README.md",
+    "/home/nick/credman/docs/agent-native/DECISIONS.md",
+    "/home/nick/credman/docs/agent-native/THREAT-MODEL.md",
+    "/home/nick/credman/docs/agent-native/IMPLEMENTATION-PLAN.md"
+  ],
+  "parent_source_spot_checks": [
+    "src/vault.rs:277-302",
+    "src/vault.rs:217-232",
+    "src/cli.rs:810-812",
+    "src/tui/app.rs:539-545",
+    "src/tui/mod.rs:62-65",
+    "src/backup.rs:147-159",
+    "src/backup.rs:216-224",
+    "src/cli.rs:959-964"
+  ],
+  "credman_runtime_or_manifest_changes": false,
+  "repository_tests_builds_migrations_credential_or_isolation_checks": "not performed",
+  "implementation_authorization": "not granted by these reviews",
+  "consolidated_handoff": "SPECIALIST-REVIEW.md"
+}
