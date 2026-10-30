@@ -11,7 +11,7 @@ use serde::Deserialize;
 use zeroize::Zeroizing;
 
 use crate::agent::{AuthenticatedContext, BackupSecret, DurableVault, Error};
-use crate::agent_broker::{harden, open_fd, read_fd};
+use crate::agent_broker::{close_unlisted, harden, open_fd, read_fd};
 
 pub(crate) struct Options {
     pub(crate) directory: PathBuf,
@@ -84,6 +84,7 @@ pub(crate) fn run(options: Options) -> Result<(), Error> {
         open_fd(fd)?;
         if !unique.insert(fd) { return Err(Error::Invalid); }
     }
+    close_unlisted(&unique)?;
     // Validate output before reading/closing inputs or changing any vault state.
     let destination = output_fd.map(|fd| output(fd, &inputs)).transpose()?;
     let identity_bytes = read_fd(options.identity_fd, 65536)?;

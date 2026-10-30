@@ -78,9 +78,9 @@ impl Sessions {
         Ok((*id, AuthenticatedContext::from_authenticated_session(
             self.owner.clone(), session.principal.clone(), self.workspace.clone(), session.expires_at)))
     }
-    pub(crate) fn admit(&mut self, stream: UnixStream, now: i64) -> Result<(Uuid, AuthenticatedContext, FramedChannel<()>), Error> {
+    pub(crate) fn admit(&mut self, stream: UnixStream, now: i64) -> Result<(Uuid, AuthenticatedContext, FramedChannel), Error> {
         check_uid(&stream)?;
-        let mut channel = FramedChannel::new(stream, (), Duration::from_secs(1), Duration::from_secs(1))
+        let mut channel = FramedChannel::new(stream, Duration::from_secs(1), Duration::from_secs(1))
             .map_err(|_| Error::Denied)?;
         let result = channel.receive().map_err(|_| Error::Denied).and_then(|value| {
             let attach: Attach = serde_json::from_value(value).map_err(|_| Error::Denied)?;
@@ -186,7 +186,7 @@ impl Drop for Listener {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SessionFile { id: Uuid, socket: PathBuf, #[serde(deserialize_with = "secret")] token: Zeroizing<String>, expires_at: i64 }
-pub(crate) fn connect(path: &Path, now: i64) -> Result<FramedChannel<()>, Error> {
+pub(crate) fn connect(path: &Path, now: i64) -> Result<FramedChannel, Error> {
     let (directory, name) = parent(path)?;
     // O_NONBLOCK prevents a malicious FIFO from blocking before the regular-file check.
     // SAFETY: directory/name remain live; openat returns a fresh descriptor.
@@ -209,7 +209,7 @@ pub(crate) fn connect(path: &Path, now: i64) -> Result<FramedChannel<()>, Error>
         || stat.st_uid != unsafe { libc::geteuid() } { return Err(Error::Denied); }
     let stream = connect_bounded(&anchored(&directory, &name))?;
     check_uid(&stream)?;
-    let mut channel = FramedChannel::new(stream, (), Duration::from_secs(5), Duration::from_secs(5)).map_err(|_| Error::Denied)?;
+    let mut channel = FramedChannel::new(stream, Duration::from_secs(5), Duration::from_secs(5)).map_err(|_| Error::Denied)?;
     channel.send(&json!({"op":"attach","token":session.token.as_str()})).map_err(|_| Error::Denied)?;
     if channel.receive().map_err(|_| Error::Denied)? != json!({"ok":true}) { return Err(Error::Denied); }
     Ok(channel)

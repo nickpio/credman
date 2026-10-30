@@ -48,7 +48,9 @@ pub(crate) enum WorkRequest {
     Generate { task: Uuid, request: Uuid, kind: CredentialKind, #[serde(default)] username: Option<String> },
     Mutate { task: Uuid, request: Uuid, mutation: Mutation },
     Metadata { task: Uuid, record: Uuid, fields: Fields },
-    Read { task: Uuid, record: Uuid, fields: Fields },
+    // Parse the retired operation only to return the same non-disclosing denial.
+    Read { task: Uuid, #[serde(rename = "record")] _record: Uuid,
+        #[serde(rename = "fields")] _fields: Fields },
     Use { task: Uuid, usage: PrivateUse },
 }
 impl WorkRequest {
@@ -83,7 +85,7 @@ enum AdminControl {
     ImportSecret { task: Uuid, request: Uuid, kind: CredentialKind, values: SecretInput },
     ReadSecret { task: Uuid, record: Uuid, fields: Fields },
     Status,
-    Approve { approval: TaskApproval },
+    Approve { approval: Box<TaskApproval> },
     RevokeTask { task: Uuid },
     IssueSession { principal: String, tasks: Vec<Uuid>, expires_at: i64 },
     RevokeSession { session: Uuid },
@@ -103,7 +105,7 @@ impl AdminRequest {
 
 struct Peer {
     fd: RawFd,
-    channel: FramedChannel<()>,
+    channel: FramedChannel,
     context: AuthenticatedContext,
     session: Option<Uuid>,
     admin: bool,
@@ -181,7 +183,7 @@ fn distinct_sockets(fds: impl Iterator<Item = RawFd>) -> Result<(), Error> {
 fn peer(fd: RawFd, context: AuthenticatedContext, admin: bool) -> Result<Peer, Error> {
     let stream = socket(fd)?;
     let raw = stream.as_raw_fd();
-    let channel = FramedChannel::new(stream, (), Duration::from_secs(5), Duration::from_secs(5))
+    let channel = FramedChannel::new(stream, Duration::from_secs(5), Duration::from_secs(5))
         .map_err(|_| Error::Invalid)?;
     Ok(Peer { fd: raw, channel, context, session: None, admin, active: true })
 }
@@ -218,6 +220,12 @@ fn work(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: WorkReque
 fn admin(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: AdminRequest,
     sessions: &mut Sessions, destinations: &[Destination]) -> Result<(Value, bool), Error> {
     match request {
+        // Human-issued grants may include SecretRead. The core still checks the
+        // human task's scope; workload peers always pass validate_agent below.
+        AdminRequest::Work(WorkRequest::Mutate { task, request, mutation: mutation @ Mutation::Share { .. } }) => {
+            let receipt = owner.mutate(ctx, task, request, mutation, now())?;
+            Ok((json!({"ok": true, "receipt": receipt}), false))
+        }
         AdminRequest::Work(request) => Ok((work(owner, ctx, request, destinations)?, false)),
         AdminRequest::Control(control) => match control {
             AdminControl::ImportSecret { task, request, kind, values } => {
@@ -234,7 +242,7 @@ fn admin(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: AdminReq
             }
             AdminControl::Shutdown => Ok((json!({"ok": true}), true)),
             AdminControl::Approve { approval } => {
-                owner.approve_task(ctx, approval, now())?;
+                owner.approve_task(ctx, *approval, now())?;
                 Ok((json!({"ok": true}), false))
             }
             AdminControl::RevokeTask { task } => {
@@ -336,12 +344,14 @@ pub(crate) fn run(options: RunOptions) -> Result<(), Error> {
         }
         let admission_ready = listener.is_some() && polls.last().is_some_and(|p| p.revents & libc::POLLIN != 0);
         for (p, readiness) in peers.iter_mut().zip(polls) {
+            if Instant::now() >= deadline { return Ok(()); }
             if !p.active || readiness.revents == 0 { continue; }
             if p.session.is_some_and(|id| !sessions.live(id, now())) { p.active = false; continue; }
             let value = match p.channel.receive() {
                 Ok(value) => value,
                 Err(_) => { p.active = false; if p.admin { return Err(Error::InteractionRequired); } continue; }
             };
+            if Instant::now() >= deadline { return Ok(()); }
             let ctx = &p.context;
             let result = if p.admin {
                 AdminRequest::parse(value)
@@ -363,6 +373,7 @@ pub(crate) fn run(options: RunOptions) -> Result<(), Error> {
             if stop { return Ok(()); }
         }
         if admission_ready {
+            if Instant::now() >= deadline { return Ok(()); }
             if let Some(listener) = &listener {
                 if let Ok((stream, _)) = listener.socket.accept() {
                     let fd = stream.as_raw_fd();

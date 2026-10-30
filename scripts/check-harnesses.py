@@ -3,7 +3,6 @@
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -30,6 +29,8 @@ def main():
     parser.add_argument('--binary-sha256', required=True)
     parser.add_argument('--harness', choices=HARNESSES, action='append',
                         help='Select a harness; repeat to select several (default: full matrix)')
+    parser.add_argument('--hermes-source', type=Path, default=Path.home() / '.hermes/hermes-agent',
+                        help='Installed Hermes source tree for its native MCP probe')
     args = parser.parse_args()
     selected = list(dict.fromkeys(args.harness or HARNESSES))
     binary = args.binary.resolve(strict=True)
@@ -50,7 +51,7 @@ def main():
         with Path(paths[name]).open('rb') as stream:
             if stream.read(4) != b'\x7fELF':
                 parser.error('Expected reviewed standalone ELF harness: ' + name)
-    scratch = Path(os.environ.get('TMPDIR', str(Path.home() / '.hermes/cache/scratch')))
+    scratch = Path(tempfile.gettempdir())
     with tempfile.TemporaryDirectory(prefix='credman-harness-check-', dir=scratch) as temporary:
         work = Path(temporary)
         work.chmod(0o700)
@@ -76,7 +77,9 @@ def main():
             staged_paths[name] = target
             sources['harness:' + name] = Path(original)
             snapshot_hashes['harness:' + name] = harness_hashes[name]
-        hermes = Path('/home/nick/.hermes/hermes-agent')
+        hermes = args.hermes_source.resolve()
+        if 'hermes' in selected and not (hermes / 'hermes_cli/mcp_config.py').is_file():
+            parser.error('Installed Hermes source unavailable; supply --hermes-source')
         hermes_source = work / 'hermes-source'
         hermes_source.mkdir()
         source_files = list(hermes.glob('*.py')) if 'hermes' in selected else []

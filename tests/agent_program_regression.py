@@ -1,16 +1,19 @@
 """Synthetic native MCP privacy acceptance. Run only in the offline controller."""
 import base64
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
+import select
 import socket
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from typing import cast
 
-from bridge_support import MCP, Owner, approval, framed_call, identifier
+from bridge_support import MCP, Owner, SEED, approval, framed_call, identifier
 from https_fixture import HTTPSFixture
 
 if os.environ.get('HOME') != '/home/tester' or os.environ.get('TMPDIR') != '/scratch':
@@ -362,6 +365,117 @@ class PrivateAcceptance(unittest.TestCase):
         self.assertEqual(a.call('credman_use', args), result)
         self.assertEqual(self.fixture.snapshot(), before)
         self.collect_audit()
+
+    def test_offline_backup_restore_and_human_reauthorization(self):
+        task = self.task('a')
+        a, _, _ = self.client('a', [task])
+        record, _ = self.generate(a, task)
+        original = self.read_private(task, record, ['Username', 'Password'])
+        self.protect(original['Password'], original['Username'])
+        self.collect_audit()
+        a.close()
+        self.owner.close()
+
+        def offline(directory, operation, secret, backup=None):
+            with ExitStack() as stack:
+                def descriptor(value):
+                    handle = stack.enter_context(tempfile.TemporaryFile(dir=self.root))
+                    handle.write(value)
+                    handle.seek(0)
+                    return handle
+
+                seed = descriptor(SEED.encode())
+                identity = descriptor(json.dumps({'owner': 'user', 'principal': 'human',
+                                                  'workspace': 'project'}).encode())
+                key = descriptor(secret)
+                payload = descriptor(backup or b'')
+                handles = [seed, identity, key, payload]
+                command = [BINARY, 'admin', '--directory', str(directory),
+                           '--seed-fd', str(seed.fileno()), '--identity-fd', str(identity.fileno()),
+                           operation, '--secret-fd', str(key.fileno()), '--passphrase',
+                           '--output-fd' if operation == 'backup' else '--backup-fd', str(payload.fileno())]
+                result = subprocess.run(command, pass_fds=[h.fileno() for h in handles],
+                                        stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+                self.raw_surfaces.extend([result.stdout, result.stderr])
+                self.assertEqual(result.returncode, 0, 'Offline administration failed')
+                self.assertEqual(result.stdout, b'')
+                payload.seek(0)
+                return payload.read()
+
+        secret = b'synthetic offline backup passphrase'
+        backup = offline(self.owner.vault, 'backup', secret)
+        self.assertTrue(backup.startswith(b'CMABAK02'))
+        self.assertTrue(original['Password'].encode() not in backup)
+        target = self.root / 'restored'
+        target.mkdir(mode=0o700)
+        offline(target, 'restore', secret, backup)
+        self.owner = Owner(BINARY, self.root, create=False, vault=target,
+                           destinations=self.destinations, registry=self.owners)
+        # Restore revokes old approvals, even for private human reads.
+        denied = self.owner.call({'op': 'read_secret', 'task': task['id'],
+                                  'record': record['record'], 'fields': ['Password']})
+        self.assertFalse(denied.get('ok'))
+        human = self.task('human')
+        renewed = self.task('a')
+        grant = {'recipient': 'a', 'fields': ['Username', 'Password'],
+                 'permissions': ['SecretRead'], 'destinations': [],
+                 'expires_at': int(time.time()) + 200, 'follow_active': False}
+        shared = self.owner.call({'op': 'mutate', 'task': human['id'], 'request': identifier(),
+                                  'mutation': {'Share': {'record': record['record'],
+                                                        'expected': record['revision'], 'grant': grant}}})
+        self.assertTrue(shared.get('ok'), 'Human could not reauthorize restored credentials')
+        self.assertEqual(self.read_private(renewed, record, ['Username', 'Password']), original)
+
+
+class OfflineDescriptorAcceptance(unittest.TestCase):
+    def test_admin_closes_unlisted_descriptors_before_reading_seed(self):
+        with tempfile.TemporaryDirectory(dir='/scratch') as directory, ExitStack() as stack:
+            root = Path(directory)
+            root.chmod(0o700)
+
+            def descriptor(value):
+                handle = stack.enter_context(tempfile.TemporaryFile(dir=root))
+                handle.write(value)
+                handle.seek(0)
+                return handle
+
+            identity = descriptor(json.dumps({'owner': 'user', 'principal': 'human',
+                                              'workspace': 'project'}).encode())
+            secret = descriptor(b'synthetic backup passphrase')
+            output = descriptor(b'')
+            seed_read, seed_write = os.pipe()
+            extra_read, extra_write = os.pipe()
+            process = None
+            try:
+                command = [BINARY, 'admin', '--directory', str(root),
+                           '--seed-fd', str(seed_read), '--identity-fd', str(identity.fileno()),
+                           'backup', '--passphrase', '--secret-fd', str(secret.fileno()),
+                           '--output-fd', str(output.fileno())]
+                process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           pass_fds=[seed_read, extra_write, identity.fileno(),
+                                                     secret.fileno(), output.fileno()])
+                os.close(extra_write)
+                extra_write = None
+                # EOF proves the live child released its inherited pipe writer.
+                ready = select.select([extra_read], [], [], 3)[0]
+                closed = bool(ready) and os.read(extra_read, 1) == b''
+                still_waiting_for_seed = process.poll() is None
+                os.write(seed_write, SEED.encode())
+                os.close(seed_write)
+                seed_write = None
+                stdout, stderr = process.communicate(timeout=15)
+                self.assertTrue(closed and still_waiting_for_seed,
+                                'Unlisted descriptor remained open while waiting for seed')
+                self.assertEqual(stdout, b'')
+                self.assertNotIn(SEED.encode(), stderr)
+            finally:
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process.communicate(timeout=5)
+                for fd in [seed_read, seed_write, extra_read, extra_write]:
+                    if fd is not None:
+                        os.close(fd)
 
 
 if __name__ == '__main__':

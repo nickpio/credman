@@ -146,7 +146,6 @@ def run(selected):
                     if session['token'] in output:
                         entry.update({'stage': 'secret-output check', 'error': 'Attachment credential echoed'})
                     else:
-                        lower = output.lower()
                         if harness == 'claude-code':
                             connected = any(line.strip() in {'Status: ✔ Connected', 'Status: ✓ Connected', 'Status: Connected'}
                                             for line in output.splitlines())

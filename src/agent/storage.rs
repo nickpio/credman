@@ -331,6 +331,7 @@ impl DurableVault {
     pub(crate) fn metadata(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid, fields: Fields, now: Time) -> Result<BTreeMap<Field, String>, Error> {
         self.apply(|app| app.metadata(ctx, task, record, fields, now))
     }
+    #[cfg(test)]
     pub(crate) fn read_secret(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid, fields: Fields, now: Time) -> Result<Disclosure, Error> {
         self.apply(|app| app.read_secret(ctx, task, record, fields, now))
     }

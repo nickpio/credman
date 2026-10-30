@@ -38,7 +38,7 @@ fn first_page(params: &Option<Value>) -> bool {
         p.keys().all(|key| key == "cursor") && p.get("cursor").is_none_or(Value::is_null)))
 }
 
-fn dispatch(value: Value, state: &mut State, channel: &mut FramedChannel<()>) -> Option<Value> {
+fn dispatch(value: Value, state: &mut State, channel: &mut FramedChannel) -> Option<Value> {
     let Some(object) = value.as_object() else { return Some(error(Value::Null, -32600, "Invalid Request")); };
     let notification = !object.contains_key("id");
     let id = object.get("id").cloned().unwrap_or(Value::Null);
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn initialize_negotiates_only_implemented_versions_and_notifications_have_no_reply() {
         let (stream, _other) = std::os::unix::net::UnixStream::pair().unwrap();
-        let mut channel = FramedChannel::new(stream, (), Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+        let mut channel = FramedChannel::new(stream, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
         for (requested, expected) in [("2024-11-05", "2024-11-05"), ("2099-01-01", "2025-11-25")] {
             let mut state = State::Initialize;
             let response = dispatch(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
@@ -276,8 +276,8 @@ mod tests {
     #[test]
     fn sdk_metadata_and_null_cursor_preserve_the_workload_boundary() {
         let (stream, other) = std::os::unix::net::UnixStream::pair().unwrap();
-        let mut channel = FramedChannel::new(stream, (), Duration::from_secs(1), Duration::from_secs(1)).unwrap();
-        let mut broker = FramedChannel::new(other, (), Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+        let mut channel = FramedChannel::new(stream, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+        let mut broker = FramedChannel::new(other, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
         let mut state = State::Initialize;
         let meta = json!({"progressToken":"sdk-progress","owner":"untrusted","principal":"admin","sdk.example/trace":{"op":"status"}});
         let response = dispatch(strict_json(&serde_json::to_vec(&json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
@@ -327,14 +327,14 @@ mod tests {
         expected_request["op"] = json!("generate");
         for scenario in ["disconnected", "committed_reply_lost", "owner_denied"] {
             let (stream, other) = std::os::unix::net::UnixStream::pair().unwrap();
-            let mut channel = FramedChannel::new(stream, (), Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+            let mut channel = FramedChannel::new(stream, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
             let owner = if scenario == "disconnected" {
                 drop(other);
                 None
             } else {
                 let expected = expected_request.clone();
                 Some(std::thread::spawn(move || {
-                    let mut owner = FramedChannel::new(other, (), Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+                    let mut owner = FramedChannel::new(other, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
                     let request = owner.receive().unwrap();
                     assert_eq!(request, expected);
                     let mut committed = Vec::new();
@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn request_ids_and_envelopes_are_strict_without_input_echo() {
         let (stream, _other) = std::os::unix::net::UnixStream::pair().unwrap();
-        let mut channel = FramedChannel::new(stream, (), Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+        let mut channel = FramedChannel::new(stream, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
         let mut state = State::Ready;
         for id in [Value::Null, json!(false), json!(1.5), json!([]), json!({"private":"marker"})] {
             let response = dispatch(json!({"jsonrpc":"2.0","id":id,"method":"ping"}), &mut state, &mut channel).unwrap();

@@ -36,15 +36,14 @@ impl fmt::Display for ChannelError {
 
 impl std::error::Error for ChannelError {}
 
-pub struct FramedChannel<Binding> {
+pub struct FramedChannel {
     stream: UnixStream,
-    binding: Binding,
     read_timeout: Duration,
     write_timeout: Duration,
     poisoned: bool,
 }
 
-impl<Binding> fmt::Debug for FramedChannel<Binding> {
+impl fmt::Debug for FramedChannel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FramedChannel")
             .field("poisoned", &self.poisoned)
@@ -52,10 +51,9 @@ impl<Binding> fmt::Debug for FramedChannel<Binding> {
     }
 }
 
-impl<Binding> FramedChannel<Binding> {
+impl FramedChannel {
     pub fn new(
         stream: UnixStream,
-        binding: Binding,
         read_timeout: Duration,
         write_timeout: Duration,
     ) -> Result<Self, ChannelError> {
@@ -72,13 +70,10 @@ impl<Binding> FramedChannel<Binding> {
             let _ = stream.shutdown(Shutdown::Both);
             return Err(ChannelError::Io);
         }
-        Ok(Self { stream, binding, read_timeout, write_timeout, poisoned: false })
+        Ok(Self { stream, read_timeout, write_timeout, poisoned: false })
     }
 
-    pub fn binding(&self) -> &Binding {
-        &self.binding
-    }
-
+    #[cfg(test)]
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
     }
@@ -137,7 +132,7 @@ impl<Binding> FramedChannel<Binding> {
     }
 }
 
-impl<Binding> Drop for FramedChannel<Binding> {
+impl Drop for FramedChannel {
     fn drop(&mut self) {
         let _ = self.stream.shutdown(Shutdown::Both);
     }
@@ -279,9 +274,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn channel() -> (FramedChannel<&'static str>, UnixStream) {
+    fn channel() -> (FramedChannel, UnixStream) {
         let (local, peer) = UnixStream::pair().unwrap();
-        (FramedChannel::new(local, "trusted-binding", Duration::from_millis(100), Duration::from_millis(100)).unwrap(), peer)
+        (FramedChannel::new(local, Duration::from_millis(100), Duration::from_millis(100)).unwrap(), peer)
     }
 
     fn raw(peer: &mut UnixStream, bytes: &[u8]) {
@@ -292,14 +287,13 @@ mod tests {
     #[test]
     fn pair_roundtrip_multiple_frames_and_safe_debug() {
         let (left, right) = UnixStream::pair().unwrap();
-        let mut a = FramedChannel::new(left, "binding-secret", Duration::from_secs(1), Duration::from_secs(1)).unwrap();
-        let mut b = FramedChannel::new(right, (), Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+        let mut a = FramedChannel::new(left, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+        let mut b = FramedChannel::new(right, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
         for value in [json!({"credential": "synthetic-marker"}), json!([null, true, 1, -2, 1.25]), json!("ok")] {
             a.send(&value).unwrap();
             assert_eq!(b.receive().unwrap(), value);
         }
         let debug = format!("{a:?}");
-        assert!(!debug.contains("binding-secret"));
         assert!(!debug.contains("synthetic-marker"));
     }
 
@@ -319,7 +313,6 @@ mod tests {
             raw(&mut peer, &bytes);
             assert_eq!(receiver.receive(), Err(ChannelError::InvalidFrame));
             assert!(receiver.is_poisoned());
-            assert_eq!(*receiver.binding(), "trusted-binding");
             assert_eq!(receiver.receive(), Err(ChannelError::Poisoned));
             assert_eq!(receiver.send(&json!(null)), Err(ChannelError::Poisoned));
             peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
@@ -352,7 +345,7 @@ mod tests {
         assert_eq!(serde_json::to_vec(&over).unwrap().len(), MAX_FRAME_BYTES + 1);
         assert!(!fits_frame(&over));
         let (mut sender, peer) = channel();
-        let mut receiver = FramedChannel::new(peer, (), Duration::from_secs(1), Duration::from_secs(1)).unwrap();
+        let mut receiver = FramedChannel::new(peer, Duration::from_secs(1), Duration::from_secs(1)).unwrap();
         assert!(!fits_frame(&over));
         assert!(!sender.is_poisoned());
         sender.send(&json!(null)).unwrap();
@@ -436,6 +429,6 @@ mod tests {
     #[test]
     fn zero_deadline_is_rejected() {
         let (stream, _peer) = UnixStream::pair().unwrap();
-        assert_eq!(FramedChannel::new(stream, (), Duration::ZERO, Duration::from_secs(1)).unwrap_err(), ChannelError::InvalidConfiguration);
+        assert_eq!(FramedChannel::new(stream, Duration::ZERO, Duration::from_secs(1)).unwrap_err(), ChannelError::InvalidConfiguration);
     }
 }

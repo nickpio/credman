@@ -61,7 +61,7 @@ credman mcp --session-file PATH
 credman admin --directory DIRECTORY --seed-fd SEED_FD --identity-fd IDENTITY_FD {backup,restore,recover} ...
 ```
 
-The seed enters through a private descriptor, not argv or an environment variable. The human administration channel remains separate from MCP. The owner is bounded to 300 seconds in this prototype; it installs no daemon. Sessions expire no later than the owner and require fresh issuance after disconnect, restart, or a consumed attachment.
+The seed enters through a private descriptor, not argv or an environment variable. The human administration channel remains separate from MCP. The owner stops admitting requests after 300 seconds in this prototype; an in-flight operation and its bounded reply may finish afterward. It installs no daemon. Sessions expire no later than the owner and require fresh issuance after disconnect, restart, or a consumed attachment.
 
 See the [runtime reference](docs/agent-native/AGENT-RUNTIME.md) and [security model](SECURITY.md). There is no interactive credential CLI, TUI, clipboard helper, USB watcher, or old-format migration surface.
 
@@ -69,16 +69,18 @@ See the [runtime reference](docs/agent-native/AGENT-RUNTIME.md) and [security mo
 
 ```bash
 cargo build --release --locked
-python scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache --agent-program-tests
+python3 scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache --fetch
+python3 scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache test --release
+python3 scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache --agent-program-tests
 ```
 
 The isolated controller builds offline, hides the host home and external network, and enables loopback only inside its private network namespace. It tests the Cargo-produced executable against synthetic state. [Historical private credential verification](docs/agent-native/private-credential-verification.json) records the baseline 25 focused Rust checks and three native private-flow cases. The [session-expiry follow-up](docs/agent-native/session-expiry-verification.json) records the later authorization repair and its targeted independent checks. The earlier [bridge verification](docs/agent-native/harness-bridge-verification.json) records historical client connection diagnostics, not current private-use proof.
 
-Earlier [agent-first refactor checks](docs/agent-native/agent-first-verification.json) and [two-real-bot playback](docs/agent-native/demo/two-agent-demo.html) remain historical evidence. The old fake-application launcher is retired; playback is not a live run of the bridge.
+Earlier [agent-first refactor checks](docs/agent-native/agent-first-verification.json) remain historical evidence. The retired fake-application demo and superseded operation-broker designs are available in Git history.
 
 ## Limits
 
 - Same-UID host-capable agents are trusted host operators, not isolated principals. Someone who can read another session file can steal its attachment authority.
 - MCP clients can share a process/connection across conversations. One configured session is one principal, not automatically a separately authenticated identity per chat.
 - Per-worker memory, PID, CPU, and tmpfs quotas remain absent. Tests do not establish hostile-host safety, storage rollback resistance, cryptographic correctness, or power-loss behavior.
-- Real website signup, password rotation, and proof of remote account creation are not implemented. HTTPS delivery is tested with synthetic local fixtures; no real credentials, global harness configuration, deployment, commit, or push are part of validation.
+- Real website signup, password rotation, and proof of remote account creation are not implemented. HTTPS delivery is tested with synthetic local fixtures; no real credentials, global harness configuration, or deployment are part of validation.

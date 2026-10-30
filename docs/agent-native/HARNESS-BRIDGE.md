@@ -128,4 +128,4 @@ The isolated probe disables package lazy installs and provider egress. It never 
 
 The supervisor, host account, kernel, executable, and session-file custody remain trusted. Same-UID host-capable agents can steal readable files or inspect processes; role labels and private socket paths do not create OS isolation. Resource quotas remain a separate production gap.
 
-The [recorded two-agent demonstration](demo/two-agent-demo.html) and its [evidence](demo/evidence.json) describe the earlier fake-application prototype. Their source hashes and failures are preserved, not relabelled as current bridge success. No fake-application runtime is required by the new bridge.
+The retired fake-application demonstration is available in Git history. No fake-application runtime is required by the bridge.

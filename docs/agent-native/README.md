@@ -8,8 +8,8 @@ The [repository README](../../README.md) describes the current product. One encr
 - [Runtime and protocol](AGENT-RUNTIME.md): native supervisor bootstrap, authenticated attachment, MCP tools, and offline administration.
 - [Implementation contract](PROGRAM-CONTRACT.md): ownership, policy, persistence, and verification boundaries.
 - [Security model](../../SECURITY.md): trusted components, session custody, disclosure, and remaining gaps.
-- [Bridge verification](harness-bridge-verification.json): exact current source/binary/client checks and independent review.
+- [Bridge verification](harness-bridge-verification.json): historical source/binary/client checks and independent review; these predate private generation.
 
 ## Historical evidence
 
-[Agent-only refactor verification](agent-first-verification.json), the [earlier program record](program-verification.json), the [first storage slice](IMPLEMENTATION-STATUS.md), and [two-real-bot evidence](demo/evidence.json) remain execution history. They are not current compatibility, private-provider integration, or production claims. The [playback guide](TWO-AGENT-DEMO.md) identifies the retired fake application launch and its recorded failures.
+[Agent-only refactor verification](agent-first-verification.json), the [earlier program record](program-verification.json), and the [first storage slice](IMPLEMENTATION-STATUS.md) remain execution history. They are not current compatibility, provider integration, or production claims. Retired fake-application demos and superseded operation-broker designs are available in Git history.

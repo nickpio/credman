@@ -9,12 +9,12 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 fn attach(sessions: &mut Sessions, task: Uuid, now: Time, expiry: Time)
-    -> (Uuid, AuthenticatedContext, [FramedChannel<()>; 2]) {
+    -> (Uuid, AuthenticatedContext, [FramedChannel; 2]) {
     let issued = sessions.issue("b".into(), vec![task], expiry, now)
         .expect("session issuance must succeed");
     let token = issued["session"]["token"].as_str().expect("issued token missing");
     let (server, client) = UnixStream::pair().expect("private attachment pair unavailable");
-    let mut client = FramedChannel::new(client, (), Duration::from_secs(2), Duration::from_secs(2))
+    let mut client = FramedChannel::new(client, Duration::from_secs(2), Duration::from_secs(2))
         .expect("attachment framing unavailable");
     client.send(&json!({"op":"attach", "token":token})).expect("attachment request failed");
     let (session, context, server) = sessions.admit(server, now)

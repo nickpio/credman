@@ -121,6 +121,7 @@ impl<'de> Deserialize<'de> for SecretInput {
 
 impl SecretInput {
     pub(crate) fn metadata_only(&self) -> bool { self.0.keys().all(|field| !field.secret()) }
+    #[cfg(test)]
     pub(crate) fn new(fields: BTreeMap<Field, String>) -> Self {
         Self(fields.into_iter().map(|(field, value)| (field, Zeroizing::new(value))).collect())
     }
@@ -415,6 +416,7 @@ impl Application {
         Ok(r)
     }
 
+    #[expect(clippy::too_many_arguments, reason = "Keep explicit authorization dimensions at each check")]
     fn can(&self, ctx: &AuthenticatedContext, t: &TaskApproval, r: &Record,
            permission: Permission, fields: &Fields, destination: Option<&str>, now: Time) -> bool {
         if r.service != t.service || r.origin != t.origin || !t.permissions.contains(&permission)
@@ -595,6 +597,7 @@ impl Application {
         Ok(receipt)
     }
 
+    #[expect(clippy::too_many_arguments, reason = "Keep explicit authorization dimensions at each check")]
     fn select(&self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid,
               fields: &Fields, permission: Permission, destination: Option<&str>, now: Time) -> Result<SecretInput, Error> {
         if fields.is_empty() { return Err(Error::Invalid); }
@@ -625,6 +628,8 @@ impl Application {
 
     /// The callback is trusted integration, never a model-controlled destination or ordinary tool response.
     /// Synchronous exclusive ownership orders dispatch before/after revoke. No persistence or replay is claimed.
+    #[cfg(test)]
+    #[expect(clippy::too_many_arguments, reason = "Test-only synchronous policy oracle")]
     pub(crate) fn use_secret<F>(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid,
                                 fields: Fields, destination: &str, now: Time, deliver: F) -> Result<DeliveryReceipt, Error>
     where F: FnOnce(&BTreeMap<Field, &str>) -> Result<DeliveryStatus, Error> {

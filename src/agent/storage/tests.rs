@@ -36,6 +36,7 @@ pub(super) struct Fixture {
 }
 
 impl DurableVault {
+    #[expect(clippy::too_many_arguments, reason = "Test fixture supplies a fixed clock and request")]
     fn use_fixed<F>(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid,
         fields: Fields, destination: &str, now: Time, deliver: F) -> Result<DeliveryReceipt, Error>
     where F: FnOnce(&BTreeMap<Field, &str>) -> Result<DeliveryStatus, Error> {

@@ -91,7 +91,8 @@ impl VaultKey {
     }
 }
 
-/// Generate a BIP39 12-word English mnemonic (128-bit entropy).
+/// Generate a BIP39 12-word English mnemonic (128-bit entropy) for synthetic tests.
+#[cfg(test)]
 pub fn generate_mnemonic() -> Result<String, CryptoError> {
     let mut entropy = vec![0u8; 16];
     rand::thread_rng().fill_bytes(&mut entropy);

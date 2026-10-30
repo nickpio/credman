@@ -11,7 +11,6 @@ import time
 import uuid
 
 SEED = ' '.join(['abandon'] * 11 + ['about'])  # Public BIP39 test vector.
-SENTINEL = 'SYNTHETIC-CREDMAN-BRIDGE-ONLY'
 
 
 def identifier():
