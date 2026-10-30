@@ -2,7 +2,7 @@
 name = "credman"
 version = "0.1.0"
 edition = "2021"
-description = "Private native credential broker for supervised agents"
+description = "Agent-native credential vault with scoped sharing and private HTTPS use"
 license = "MIT"
 readme = "README.md"
 

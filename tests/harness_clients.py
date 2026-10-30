@@ -66,10 +66,10 @@ def codex_discovery(environment):
 
 
 def opencode_discovery(environment, token):
-    """OpenCode usage is incomplete; do not launch the unfinished API experiment."""
+    """OpenCode credential use is unsupported; report the capability without launching a client."""
     return {'connected': False, 'status': 'incomplete',
             'stage': 'OpenCode compatibility incomplete',
-            'reason': 'Native connection, exact tool discovery and invocation are unverified; experimental API probing is disabled.'}
+            'reason': 'Native MCP connection, exact tool discovery and invocation are unverified.'}
 
 
 def run(selected):

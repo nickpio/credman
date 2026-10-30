@@ -287,7 +287,9 @@ class PrivateAcceptance(unittest.TestCase):
                     raise AssertionError('Raw owner request failed at transport') from None
                 self.assertFalse(result.get('ok'), 'Raw owner request unexpectedly succeeded')
                 self.assertTrue('fields' not in result, 'Raw owner response disclosed fields')
-                if index < 3:
+                if index == 0:
+                    self.assertEqual(result, {'ok': False, 'error': 'invalid request'})
+                elif index < 3:
                     self.denied(result)
             self.assertEqual((self.owner.vault / 'state.v2').read_bytes(), raw_state,
                              'Raw owner request changed durable state')

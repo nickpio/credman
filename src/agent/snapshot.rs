@@ -222,15 +222,15 @@ mod tests {
     }
 
     #[test]
-    fn removed_copy_fields_and_missing_restored_guard_fail_closed() {
+    fn unknown_record_fields_and_missing_restore_guard_fail_closed() {
         let bytes = encode(&fixture()).unwrap();
         for damage in 0..5 {
             let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             let record = value["records"][0].as_object_mut().unwrap();
             match damage {
-                0 => { record.insert("copy".into(), serde_json::json!({"legacy": null, "restored": false})); }
-                1 => { record.insert("legacy".into(), serde_json::json!({"original": "synthetic"})); }
-                2 => { record.insert("attachment".into(), "synthetic".into()); }
+                0 => { record.insert("extra_object".into(), serde_json::json!({"value": null})); }
+                1 => { record.insert("extra_array".into(), serde_json::json!(["synthetic"])); }
+                2 => { record.insert("extra_text".into(), "synthetic".into()); }
                 3 => { record.remove("restored"); }
                 _ => { record.insert("restored".into(), "false".into()); }
             }

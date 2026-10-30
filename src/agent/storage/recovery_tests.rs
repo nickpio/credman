@@ -90,7 +90,7 @@ fn unfinished_registration_recovers_unknown_never_reregisters_and_fresh_approval
     owner.approve_task(&admin(), approved, 5).unwrap();
     owner.mutate(&admin(), th, Uuid::new_v4(), Mutation::Share { record: f.receipt.record, expected: 1,
         grant: GrantSpec { recipient: "a".into(), fields: fields(&[Field::Username, Field::Password]),
-            permissions: [Permission::SecretUse].into_iter().collect(), destinations: ["fake-app".into()].into_iter().collect(),
+            permissions: [Permission::SecretUse].into_iter().collect(), destinations: ["test-service".into()].into_iter().collect(),
             expires_at: 100, follow_active: false } }, 5).unwrap();
     assert_eq!(owner.use_secret(&agent("a"), ta, request(f.receipt.record, PrivateAction::Register), &mut || 6,
         |_| panic!("recovery reset the registration guard")).unwrap_err(), Error::Conflict);

@@ -181,7 +181,7 @@ class RunnerGuards(unittest.TestCase):
             work = Path(directory)
             for mode in ['--workload-tests']:
                 for extra, message in [([mode, 'check'], 'do not accept Cargo arguments'),
-                                       (['--revision', '510c2a0', mode], 'current working tree only')]:
+                                       (['--revision', 'HEAD', mode], 'current working tree only')]:
                     result = subprocess.run([sys.executable, str(RUNNER), '--work-dir', str(work), *extra],
                                             stdin=subprocess.DEVNULL, capture_output=True,
                                             text=True, timeout=20)
@@ -211,7 +211,7 @@ class RunnerGuards(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             for mode in ['--agent-program-tests']:
-                result = self.run_probe(work, '--revision', '510c2a0', mode)
+                result = self.run_probe(work, '--revision', 'HEAD', mode)
                 self.assertEqual(result.returncode, 2)
                 self.assertFalse(list(work.iterdir()))
 

@@ -1,60 +1,89 @@
-# Agent broker and MCP runtime reference
+# Runtime reference
 
-## OpenCode usage is incomplete
+Credman runs on Linux as one durable vault owner with authenticated Unix-socket admission and MCP stdio frontends. A trusted supervisor supplies the unlock material, configuration, and private human administration channel.
 
-OpenCode is not supported for credential use in this revision. The installed v2.2.2 client selected its configuration but did not establish MCP discovery or tool invocation. The unfinished authenticated API experiment is disabled, and the probe reports `status: incomplete` with `connected: false`. No authentication experiment or live configuration change is part of this merge. Earlier v2.1.4 records remain historical.
-
-Status: local Linux harness bridge. The fake application adapter is removed. The [private credential baseline](private-credential-verification.json) is historical. The [session-expiry follow-up](session-expiry-verification.json) covers the later authorization repair. [Bridge verification](harness-bridge-verification.json) and [agent-first verification](agent-first-verification.json) describe older source. No production provider or hostile-host isolation is claimed.
-
-## Native entrypoint
+## Commands and bootstrap
 
 ```text
 credman serve --directory DIRECTORY --seed-fd SEED_FD --config-fd CONFIG_FD --admin-fd ADMIN_FD [--create] [--bridge-socket PATH]
 credman mcp --session-file PATH
 ```
 
-`DIRECTORY` is an existing dedicated absolute directory, owned by the current user with mode `0700`. `--create` never replaces existing state. The seed and trusted configuration enter through distinct private descriptors above standard IO. Administration and workload sockets cannot alias. Seed/configuration descriptors close after reading, unlisted descriptors close, and retained descriptors are close-on-exec.
+`DIRECTORY` is an existing absolute directory, owned by the effective user with mode `0700`. `--create` initializes a store without replacing state. A seed is a 12-word English BIP39 mnemonic supplied through a private descriptor. The descriptor arguments identify resources already opened by the supervisor; they do not contain secret values.
 
-The trusted configuration contains `owner`, `workspace`, `admin_principal`, and `peers`, each peer having `fd` and `principal`. Empty peers require a bridge socket. An optional `destinations` list defaults to empty and accepts at most 16 unique fixed HTTPS destinations. Each has `id`, `service`, `origin`, `path`, `auth` (`basic` or `bearer`), and optional `ca_file`. The old fake-destination registry is removed. The owner stops admitting requests after a 300-second deadline and serializes human control before workload processing. An in-flight operation and its bounded reply may finish afterward. It installs no daemon.
+Seed, configuration, and administration descriptors must be distinct and above stdin, stdout, and stderr. Administration and workload sockets cannot alias. Input descriptors close after reading, unlisted descriptors close, and retained descriptors are close-on-exec.
 
-## Attachment and MCP
+The configuration descriptor contains a JSON object with these fields:
 
-The private human channel supports `status`, `approve`, `revoke_task`, `audit`, `shutdown`, `issue_session`, and `revoke_session`. It also supports task-scoped `import_secret` (`task`, `request`, `kind`, `values`) and `read_secret` (`task`, `record`, `fields`). Only an authorized private human read can return `permission: secret.read` and secret fields. The human channel also accepts `mutate` with `Share`, including task-scoped `SecretRead` grants. After restore or recovery revokes old authority, approve a fresh human task and recipient task, then issue a new grant before reading an existing record.
+| Field | Content |
+|-------|---------|
+| `owner` | User-selected owner identity |
+| `workspace` | Scope shared by this store's tasks and records |
+| `admin_principal` | Identity assigned to the private human channel |
+| `peers` | Preconnected workload sockets, each with `fd` and `principal` |
+| `destinations` | Optional list of fixed HTTPS consumers, defaulting to empty |
 
-`issue_session` takes `principal`, a nonempty `tasks` UUID allowlist, and `expires_at`. The private reply carries `session` with `id`, `socket`, `token`, and `expires_at`. The supervisor writes that document to an owned private regular single-link `0600` file under a `0700` directory. The token is not a record reference or root seed and must not enter config, argv, environment, chat, or logs.
+An empty `peers` list requires `--bridge-socket`. At most 16 preconnected peers and 16 destinations are accepted. A bridge socket resides under an owned mode-`0700` directory.
 
-`mcp` validates the file/endpoint and authenticates with the owner before a successful protocol initialization. The token attaches once. The owner binds principal, scope, task allowlist, and expiry independently of `clientInfo` or request arguments. `revoke_session` takes `session`, the UUID reference; only the human channel can call it. Disconnect/restart or consumed attachment requires fresh issuance.
+Each destination has `id`, `service`, `origin`, `path`, `auth`, and optional `ca_file`. `auth` is `basic` or `bearer`. The HTTPS origin and service must match the task approval. The optional CA file requires an absolute nonsymlinked path whose file and ancestors have trusted ownership and no group or world write permissions.
 
-The frontend implements bounded newline-delimited JSON-RPC with initialize/initialized, ping, tools/list, and tools/call. MCP stdout contains protocol only. The four tools map to workload operations:
+The owner serializes human control before workload processing. It stops admitting requests after 300 seconds. An in-flight operation and its bounded reply may finish afterward.
 
-| Tool | Arguments | Native op |
-|------|-----------|-----------|
-| `credman_generate` | task, request, kind, optional username | generate |
-| `credman_mutate` | task, request, mutation | mutate |
-| `credman_metadata` | task, record, fields | metadata |
-| `credman_use` | task, usage | use |
+## Human administration channel
 
-The [harness guide](HARNESS-BRIDGE.md) has five configuration formats, lifecycle warnings, and source references. Harness type is compatibility metadata, not a new access-control role. One MCP connection can serve several conversations; that does not create several authenticated principals.
+Administration uses a connected private Unix socket, separate from agent connections. Messages contain a four-byte big-endian length followed by a JSON payload, with a maximum payload of 65,536 bytes.
 
-## Workload protocol
+| Operation | Arguments | Effect |
+|-----------|-----------|--------|
+| `status` | None | Check owner availability |
+| `approve` | `approval` | Persist a task approval |
+| `revoke_task` | `task` | Revoke task authority and dependent grants |
+| `issue_session` | `principal`, `tasks`, `expires_at` | Issue a private one-use attachment credential |
+| `revoke_session` | `session` | Invalidate attachment or active session authority |
+| `import_secret` | `task`, `request`, `kind`, `values` | Import credentials under an approved task |
+| `read_secret` | `task`, `record`, `fields` | Return authorized values with `permission: secret.read` |
+| `mutate` | `task`, `request`, `mutation` | Apply a scoped mutation; human `Share` may include `SecretRead` |
+| `audit` | Optional `offset` | Return up to 100 safe events, plus `total` and `has_more` |
+| `shutdown` | None | Acknowledge and stop the owner |
 
-Native private channels use a four-byte big-endian length followed by bounded UTF-8 JSON. The decoder rejects duplicate keys, malformed/deep data, invalid lengths, and transport deadline violations. Workload identity belongs to the bound channel.
+A task approval contains `id`, `owner`, `principal`, `workspace`, `service`, `origin`, `fields`, `permissions`, `destinations`, `expires_at`, and optional `share`. Sharing bounds specify permitted recipients, fields, permissions, destinations, and expiry. Unlocking and session issuance create no task authority.
 
-`generate` carries `task`, `request`, `kind`, and optional `username`. Login generation requires a public username and creates a private 32-character password. ApiKey generation forbids a supplied username and creates a private 32-character token. The same request UUID and specification returns the original receipt after restart; changed specifications conflict.
+The human channel can also submit `generate`, `metadata`, and `use` under approved human-task scope. Human identity is established by the supervisor's channel binding. JSON labels do not authenticate an arbitrary host process.
 
-`mutate` carries `task`, `request`, and an externally tagged `Mutation`. Agent variants are metadata-only `Patch`, `Delete`, `Share`, `Revoke`, and untrusted `ReportOutcome`. The owner rejects raw `Create`, embedded `Generate`, secret-bearing `Patch`, and agent-issued `SecretRead` grants. Successful mutations return references and revisions, not secret values.
+## Sessions and MCP
 
-`metadata` carries `task`, `record`, and `fields`. Only approved `Label`, `Username`, and `Notes` fields are accepted. There is no MCP read tool. The owner rejects legacy workload `read` even when the task has `SecretRead`; human reads use the explicit private `read_secret` operation.
+`issue_session` returns a private `session` object with `id`, `socket`, `token`, and `expires_at`. It requires a nonempty task UUID allowlist, a principal distinct from the administrator, and a future expiry within the owner lifetime. At most 32 sessions are retained.
 
-`use` carries `task` and `usage` (`PrivateUse`): `request`, `record`, `fields`, `destination`, and `action`. Only action `Use` is supported. The configured destination service and exact origin must match the approved task. Fields must exactly match Basic (`Username`, `Password`) or Bearer (`ApiKey`) authentication.
+The supervisor writes the object into a new owned mode-`0600` regular single-link file under an owned mode-`0700` directory. The token must stay outside harness configuration, argv, environment variables, chat, and logs.
 
-The owner prepares a fixed `/usr/bin/curl` HTTPS GET before final authorization, then supplies authorized values through private stdin. The model cannot choose a URL, header, CA file, or command. Responses return a receipt with delivery status, not credential fields or HTTP bodies. Redirects and automatic retries are disabled. Unknown outcomes are retained without redispatch, and HTTP acceptance is not verified login or registration. Unsupported actions and unknown destinations fail before durable delivery preparation.
+The frontend validates the session file and owner endpoint, then attaches using the token. The owner consumes the token once and binds the connection to its server-held principal, scope, task allowlist, and deadline. Disconnect, restart, expiry, and revocation require fresh issuance. MCP `clientInfo` and tool arguments cannot select identity.
 
-Task approvals and grants restrict scope, fields, permissions, recipients, destinations, expiry, and pinned value versions. Cached mutations recheck current authority. References and request IDs are not bearer authority. Session allowlists do not replace domain authorization.
+The frontend implements newline-delimited JSON-RPC for `initialize`, `notifications/initialized`, `ping`, `tools/list`, and `tools/call`. Supported negotiated protocol versions are `2024-11-05` and `2025-11-25`. Stdout carries protocol messages only.
 
-`audit` pages safe events using optional `offset`, returning `total` and `has_more`. It is bounded, not tamper-evident. Issuance replies are private authentication material and are not audit/model output.
+## Agent requests
 
-## Offline human administration
+Agent channels use the same bounded length-prefixed JSON framing as administration. Duplicate keys, unknown fields, malformed data, excessive nesting, invalid lengths, and transport deadline violations are rejected. MCP maps its four tools to these operations:
+
+| MCP tool | Native operation | Arguments |
+|----------|------------------|-----------|
+| `credman_generate` | `generate` | `task`, `request`, `kind`, optional `username` |
+| `credman_mutate` | `mutate` | `task`, `request`, `mutation` |
+| `credman_metadata` | `metadata` | `task`, `record`, `fields` |
+| `credman_use` | `use` | `task`, `usage` |
+
+`generate` accepts kind `Login` with a public username or `ApiKey` without a username. The owner generates a private 32-character value and returns a record receipt. Reusing the same request UUID and specification returns the same receipt under current authority; changed specifications conflict.
+
+Agent mutations are externally tagged `Patch`, `Delete`, `Share`, `Revoke`, or `ReportOutcome` objects. Record mutations use expected revisions. Patches accept metadata only. Agent-created read grants, plaintext creation, and secret patches are rejected. Outcome reports are untrusted and cannot establish a verified login.
+
+`metadata` accepts approved `Label`, `Username`, and `Notes` fields. Agent requests have no plaintext secret-read operation. Explicit human reads use the administration channel.
+
+`usage` contains `request`, `record`, `fields`, `destination`, and `action`. Only action `Use` is supported. Basic destinations require exactly `Username` and `Password`; Bearer destinations require exactly `ApiKey`.
+
+The owner prepares `/usr/bin/curl` before final authorization, then supplies credentials through private stdin for a fixed verified-HTTPS GET. Agents cannot choose the URL, headers, CA file, or command. Redirects, ambient curl configuration, proxies, and automatic retries are disabled. Response bodies, headers, and curl stderr are discarded. A receipt contains an attempt ID and delivery status, without secret values.
+
+Task, grant, and attached-session authority are checked immediately before delivery, after durable intent publication. Expiry at that boundary cancels dispatch. Cached responses also require current authority. `Accepted` describes HTTP delivery, without proving registration or a verified login. An uncertain outcome is not automatically redispatched.
+
+## Offline administration
 
 ```text
 credman admin --directory DIRECTORY --seed-fd SEED_FD --identity-fd IDENTITY_FD backup --secret-fd SECRET_FD [--passphrase] --output-fd OUTPUT_FD
@@ -62,16 +91,14 @@ credman admin --directory DIRECTORY --seed-fd SEED_FD --identity-fd IDENTITY_FD 
 credman admin --directory DIRECTORY --seed-fd SEED_FD --identity-fd IDENTITY_FD recover
 ```
 
-`IDENTITY_FD` contains trusted `owner`, `principal`, and `workspace`, not self-authentication. Inputs are distinct transferred resources. Backup output requires an empty private file/pipe and cannot alias an input. Secrets are capped at 4096 bytes, identity at 64 KiB, and backup input at 32 MiB. No backup/plaintext bytes are printed to ordinary admin stdout.
+The identity descriptor contains trusted `owner`, `principal`, and `workspace` values. Inputs are distinct transferred resources. Backup output requires an empty private regular file or private pipe and cannot alias an input. Ordinary admin stdout contains no backup or plaintext bytes. Seed and backup-secret text inputs are capped at 4096 bytes, identity at 64 KiB, and encrypted backup input at 32 MiB. Passphrases require at least 16 characters.
 
-Backups are authenticated and encrypted using a seed or passphrase. Restore creates a new store without overwriting state, preserves records/history, revokes prior authority, and requires new approval. Restored records cannot register again. Recovery requires human scope and valid encrypted evidence and revokes authority. Never delete `pending.v2` or a recovery gate to force access.
+Backups use either a seed or a separate passphrase. A destination store can use a different seed. Restore validates the complete backup and creates a fresh store without overwriting state. It preserves records and request receipts while revoking retained tasks and grants.
 
-## Executed synthetic acceptance
+After restore or recovery, approve fresh human and recipient tasks. Use the human task to grant access to an existing record before reading or using it. Recovery requires matching human scope, the seed, and valid retained encrypted evidence. It settles unfinished delivery conservatively and revokes authority.
 
-```bash
-python scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache --agent-program-tests
-```
+## Storage
 
-The controller uses an offline namespace, synthetic home, exact current Cargo artifact, source hashes, and synthetic credentials. The credential-flow acceptance cases use real MCP subprocesses, one durable owner, and verified loopback TLS Basic/Bearer endpoints without a fake application or model/provider call. [Private credential verification](private-credential-verification.json) records their outcomes and source review. Prior installed-client diagnostics remain historical, and OpenCode runtime connection remains unverified.
+The store retains `state.v2`, `owner.lock`, and publication or recovery evidence such as `pending.v2` and `recovery.v2`. One owner holds the exclusive advisory lock throughout its session. Publication uses private unique temporary files, file sync, atomic publication, and directory sync.
 
-The sandboxed-worker launcher remains separate reusable evidence. It is not proof that host-capable harnesses sharing the human's UID are isolated. Per-worker memory, PID, CPU, and tmpfs quotas remain absent. No real vault, provider, production deployment, or global configuration is part of validation. Existing bot-chat directories and ancestors are never cleanup targets.
+Ambiguous publication freezes access for explicit recovery. Never delete lock or recovery evidence to force access. See [security](../../SECURITY.md) for filesystem assumptions, key custody, and recovery limits.

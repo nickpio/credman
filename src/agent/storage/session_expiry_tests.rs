@@ -60,11 +60,11 @@ fn attached_session_expiry_cancels_final_handoff_and_live_retry() {
     assert!(f.owner.app.tasks[&f.ta].expires_at > session_expiry);
     assert!(f.owner.app.grants[&grant_id].spec.expires_at > session_expiry);
     assert!(!f.owner.app.grants[&grant_id].revoked);
-    f.owner.validate_consumer(&context, f.tb, "fake-app", "unix:fake-app", admitted_at)
+    f.owner.validate_consumer(&context, f.tb, "test-service", "https://service.example.invalid", admitted_at)
         .expect("consumer task preflight must remain valid");
 
     let request = |id| PrivateUse { request: id, record: f.receipt.record,
-        fields: fields(&[Field::Username, Field::Password]), destination: "fake-app".into(),
+        fields: fields(&[Field::Username, Field::Password]), destination: "test-service".into(),
         action: PrivateAction::Use };
     let live_calls = Cell::new(0usize);
     let live = f.owner.use_secret(&context, f.tb, request(Uuid::new_v4()), &mut || admitted_at, |values| {
@@ -107,7 +107,7 @@ fn attached_session_expiry_cancels_final_handoff_and_live_retry() {
         attach(&mut sessions, f.tb, retry_at, session_expiry + 60);
     assert!(sessions.permits(renewed_session, f.tb, retry_at));
     assert!(owner.app.select(&renewed_context, f.tb, f.receipt.record,
-        &fields(&[Field::Username, Field::Password]), Permission::SecretUse, Some("fake-app"), retry_at).is_ok(),
+        &fields(&[Field::Username, Field::Password]), Permission::SecretUse, Some("test-service"), retry_at).is_ok(),
         "newly attached live context must otherwise authorize this private use");
     let retry_calls = Cell::new(0usize);
     let retry = owner.use_secret(&renewed_context, f.tb, request(expired_request), &mut || retry_at, |_| {

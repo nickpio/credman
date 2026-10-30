@@ -1,86 +1,107 @@
-# credman
+# Credman
 
-## OpenCode usage is incomplete
+Credman is an agent-native credential vault for sharing access to sensitive credentials across supervised agents. Agents exchange record references and scoped permissions. Credential values stay inside the vault and its approved HTTPS consumers, outside model-visible tool responses and chat.
 
-OpenCode is not supported for credential use in this revision. The installed v2.2.2 client selected its configuration but did not establish MCP discovery or tool invocation. The unfinished authenticated API experiment is disabled, and the probe reports `status: incomplete` with `connected: false`. No authentication experiment or live configuration change is part of this merge. Earlier v2.1.4 records remain historical.
+One vault owner holds the encrypted store. A trusted supervisor approves tasks, assigns agent identities, configures destinations, and issues private sessions. Agents connect through MCP stdio frontends without receiving the vault seed.
 
-An agent-first credential vault and local MCP bridge. Multiple agent harnesses access the same scoped vault operations while one owner holds the encrypted store.
+## Capabilities
 
-The user owns credentials. A harness name, model claim, record reference, or MCP client label grants no authority. A trusted supervisor binds each client session to a principal, workspace, task allowlist, and expiry.
+- Generate login passwords and API-key values inside the vault. Login generation takes a public username; generated secrets never appear in the response.
+- Share access with a named agent, limited by fields, permissions, destination IDs, and expiry. Grants pin the credential-value version.
+- Use credentials through a fixed HTTPS GET with Basic or Bearer authentication. The supervisor selects the endpoint, path, and optional CA certificate.
+- Read authorized metadata, patch metadata, revoke grants, delete records, and report task outcomes through MCP.
+- Import existing credentials and perform explicitly authorized secret reads through a separate human administration channel.
+- Create encrypted backups, restore into a fresh store, and recover from ambiguous storage publication with human authorization.
+- Persist encrypted records, approvals, grants, request receipts, delivery attempts, and bounded audit events together. Revision checks prevent stale updates, and request IDs support retries without repeating completed work.
 
-## Current scope
+Credential generation creates vault records. It does not create remote accounts or issue provider credentials. A generated API-key value must be provisioned with its intended service separately.
 
-The fake-login application adapter is removed. The bridge generates local credentials, supports scoped sharing and private use through an approved HTTPS destination, reads authorized metadata, and accepts private human imports. Encrypted backup, restore safeguards, and human recovery remain in the core.
+## How sharing works
 
-MCP exposes `credman_generate`, `credman_mutate`, `credman_metadata`, and `credman_use`. It does not expose `credman_read`, even when a task has `SecretRead`. Agents receive references and use authority, not plaintext. A trusted human can import or read secrets through the private administration channel, subject to approved task scope.
+1. The supervisor starts a vault owner and approves separate tasks for Agent A and Agent B. Each approval specifies identity, workspace, service, origin, fields, permissions, destinations, and expiry.
+2. The supervisor issues each agent a one-use attachment token through the private human channel and writes it into a private session file.
+3. Each agent harness launches `credman mcp --session-file PATH`. The owner authenticates the attachment and binds the connection to its assigned principal and task allowlist.
+4. A calls `credman_generate` and receives an opaque record ID and revision.
+5. Within its approved sharing bounds, A grants B `SecretUse` for the required fields and destination. A sends B the record reference through their existing communication channel.
+6. B calls `credman_use`. The owner checks current task, session, and grant authority, supplies credentials privately to the configured HTTPS consumer, and returns a delivery receipt.
+7. Revocation or expiry blocks subsequent access, including retries of successful requests.
 
-`credman_generate` creates local credentials, not online accounts. Login generation requires a public username and creates a private password; API-key generation creates a private token. For approved HTTPS destinations, `credman_use` performs a fixed verified-HTTPS GET with Basic or Bearer authentication. Its `Accepted`, `Rejected`, `Unknown`, and `HumanRequired` statuses describe delivery, not verified login or registration. The agent cannot choose the URL, headers, CA file, or command. Unknown delivery is not retried automatically.
+A record ID conveys no authority by itself. Agents cannot approve tasks, change their session identity, or grant plaintext read access. The vault provides access control and private delivery; agents use their own communication channel to exchange references.
 
-This remains a local Linux prototype, not a production provider installation or an agent messaging bus.
+## MCP tools
 
-## How agents share credentials
+| Tool | Purpose | Returned data |
+|------|---------|---------------|
+| `credman_generate` | Generate a login password or API-key value | Record ID and revision |
+| `credman_mutate` | Patch metadata, share, revoke, delete, or report an outcome | Record revision and optional grant ID |
+| `credman_metadata` | Read approved `Label`, `Username`, or `Notes` fields | Authorized metadata |
+| `credman_use` | Authenticate a configured HTTPS GET | Attempt ID and delivery status |
 
-1. A trusted human supervisor unlocks one store and approves separate tasks for Agent A and Agent B.
-2. The supervisor issues each agent a one-use attachment credential through its private administration channel. The credential goes into a private session file, not the harness configuration or a chat.
-3. Each harness launches `credman mcp --session-file PATH`. The frontend authenticates to the existing owner; it never opens the vault or receives the root seed.
-4. Agent A calls `credman_generate` and receives an opaque record reference and revision. The reference alone grants no access.
-5. Within its approved delegation limits, A grants B `SecretUse` for specific fields and destination IDs, then sends B the record reference. Agent-issued `SecretRead` grants are forbidden.
-6. B calls `credman_use` through its own task and bound session. The owner supplies the secret privately to the approved HTTPS consumer and returns a receipt. Revocation and expiry block later access, including cached retries.
+Basic authentication requires exactly `Username` and `Password`; Bearer authentication requires exactly `ApiKey`. Agents select an approved destination ID, while the supervisor controls its URL and authentication scheme. Redirects and automatic HTTP retries are disabled. HTTP response bodies, headers, and curl diagnostics are discarded.
 
-Revoking access cannot recall a value already sent to a trusted destination or rotate an upstream credential.
+Delivery receipts use `Accepted`, `Rejected`, `Unknown`, or `HumanRequired`. An accepted HTTP response does not prove account registration or a verified login. Uncertain delivery is retained without automatic redispatch.
 
-For attached sessions, the owner rechecks session expiry at final authorization immediately before the private delivery callback, after durable intent publication. Expiry at that boundary cancels dispatch. This does not require remote receipt or completion before expiry, or recall credentials already handed off.
+## Build
 
-## Harness integration
-
-All five target harnesses document local MCP support. They use different configuration shapes, not different vault backends. The installed-client results below predate private generation and the current tool catalogue. They were not rerun for this feature.
-
-| Harness | Local MCP configuration | Historical installed-client check |
-|---------|-------------------------|------------------------|
-| Codex | TOML `mcp_servers.credman`, command and args | 0.164.0 discovers all four tools |
-| Claude Code | JSON `mcpServers.credman`, stdio command and args | 2.1.310 reports connected |
-| Hermes | Profile YAML `mcp_servers.credman`, command and args | Native MCP probe connects and discovers all four tools |
-| Grok Build | TOML `mcp_servers.credman`, command and args | 1.0.70 reports healthy and discovers four tools |
-| OpenCode | JSON `mcp.servers.credman`, local command array (OpenCode v2) | 2.1.4 loads the exact configuration, but its MCP listing remains empty. Runtime compatibility is unverified. |
-
-The [harness guide](docs/agent-native/HARNESS-BRIDGE.md) covers provisioning, configuration, actual compatibility checks, and lifecycle limits. Generate a configuration fragment without touching live settings:
-
-```bash
-python examples/harness_config.py codex \
-	--binary /absolute/path/to/credman \
-	--session-file /private/credman/session-agent-a.json
-```
-
-Use `claude-code`, `hermes`, `grok-build`, or `opencode` for the other formats. The fragment contains only an executable and session-file path, never a seed or token.
-
-## Native interfaces
-
-```text
-credman serve --directory DIRECTORY --seed-fd SEED_FD --config-fd CONFIG_FD --admin-fd ADMIN_FD [--create] [--bridge-socket PATH]
-credman mcp --session-file PATH
-credman admin --directory DIRECTORY --seed-fd SEED_FD --identity-fd IDENTITY_FD {backup,restore,recover} ...
-```
-
-The seed enters through a private descriptor, not argv or an environment variable. The human administration channel remains separate from MCP. The owner stops admitting requests after 300 seconds in this prototype; an in-flight operation and its bounded reply may finish afterward. It installs no daemon. Sessions expire no later than the owner and require fresh issuance after disconnect, restart, or a consumed attachment.
-
-See the [runtime reference](docs/agent-native/AGENT-RUNTIME.md) and [security model](SECURITY.md). There is no interactive credential CLI, TUI, clipboard helper, USB watcher, or old-format migration surface.
-
-## Build and verification
+The runtime requires Linux, a Rust toolchain with Cargo, and `/usr/bin/curl` for private HTTPS use.
 
 ```bash
 cargo build --release --locked
-python3 scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache --fetch
-python3 scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache test --release
-python3 scripts/check-isolated.py --work-dir /absolute/path/to/prepared-cache --agent-program-tests
+./target/release/credman --help
 ```
 
-The isolated controller builds offline, hides the host home and external network, and enables loopback only inside its private network namespace. It tests the Cargo-produced executable against synthetic state. [Historical private credential verification](docs/agent-native/private-credential-verification.json) records the baseline 25 focused Rust checks and three native private-flow cases. The [session-expiry follow-up](docs/agent-native/session-expiry-verification.json) records the later authorization repair and its targeted independent checks. The earlier [bridge verification](docs/agent-native/harness-bridge-verification.json) records historical client connection diagnostics, not current private-use proof.
+The executable has three commands:
 
-Earlier [agent-first refactor checks](docs/agent-native/agent-first-verification.json) remain historical evidence. The retired fake-application demo and superseded operation-broker designs are available in Git history.
+| Command | Responsibility |
+|---------|----------------|
+| `serve` | Own the unlocked store and handle supervisor and agent requests |
+| `mcp` | Authenticate a session and expose the four tools over stdio |
+| `admin` | Perform offline encrypted backup, restore, or recovery |
 
-## Limits
+## Connect agents
 
-- Same-UID host-capable agents are trusted host operators, not isolated principals. Someone who can read another session file can steal its attachment authority.
-- MCP clients can share a process/connection across conversations. One configured session is one principal, not automatically a separately authenticated identity per chat.
-- Per-worker memory, PID, CPU, and tmpfs quotas remain absent. Tests do not establish hostile-host safety, storage rollback resistance, cryptographic correctness, or power-loss behavior.
-- Real website signup, password rotation, and proof of remote account creation are not implemented. HTTPS delivery is tested with synthetic local fixtures; no real credentials, global harness configuration, or deployment are part of validation.
+A trusted supervisor must provision the store, tasks, and session files before launching clients. The store directory must be owned by the effective Unix user with mode `0700`. The seed and supervisor configuration enter through private inherited file descriptors.
+
+```text
+credman serve --directory DIRECTORY --seed-fd SEED_FD --config-fd CONFIG_FD --admin-fd ADMIN_FD --bridge-socket PATH [--create]
+```
+
+This is the supervisor invocation contract. The supervisor must open and transfer the descriptors, including a connected administration socket. The [runtime reference](docs/agent-native/AGENT-RUNTIME.md) describes their contents and protocol. [The synthetic supervisor fixture](tests/bridge_support.py) demonstrates descriptor transfer using public test data.
+
+Generate a harness configuration fragment after the supervisor has issued a session:
+
+```bash
+python3 examples/harness_config.py codex \
+	--binary /absolute/path/to/credman \
+	--session-file /private/credman/agent-a.json
+```
+
+The generator supports `codex`, `claude-code`, `hermes`, `grok-build`, and `opencode` configuration shapes. It prints executable arguments and a session-file path without reading the token or changing live settings. OpenCode credential use is unsupported until its connection, tool discovery, and invocation are verified. Configuration generation alone does not establish client compatibility.
+
+The [harness guide](docs/agent-native/HARNESS-BRIDGE.md) covers provisioning, configuration, and session lifecycle. Each independent principal needs its own session. A harness that shares one MCP process across conversations shares that session's identity.
+
+## Verify
+
+The isolated controller requires Python 3, Bubblewrap, rustup, and OpenSSL. Use a dedicated cache outside the repository. The fetch step downloads locked dependencies; subsequent builds and tests run offline with a synthetic home and private loopback network.
+
+```bash
+python3 scripts/check-isolated.py --work-dir /absolute/path/to/credman-checks --fetch
+python3 scripts/check-isolated.py --work-dir /absolute/path/to/credman-checks test --release
+python3 scripts/check-isolated.py --work-dir /absolute/path/to/credman-checks clippy --all-targets -- -D warnings
+python3 scripts/check-isolated.py --work-dir /absolute/path/to/credman-checks --agent-program-tests
+python3 scripts/check-isolated.py --work-dir /absolute/path/to/credman-checks --workload-tests
+python3 -B tests/check_isolated_runner.py
+python3 -B scripts/check-docs.py
+```
+
+Executable acceptance checks exercise real MCP subprocesses against one durable owner and synthetic HTTPS endpoints. They cover generation, sharing, revocation, session boundaries, TLS validation, uncertain delivery, backup, restore, and human reauthorization. The controller records source hashes and the executable digest with each run.
+
+## Security boundaries and limits
+
+Credman encrypts persisted state with Argon2id-derived keys and AES-256-GCM. It uses private filesystem resources, one-use session authentication, task approvals, bounded delegation, strict request decoding, and authorization checks immediately before private delivery.
+
+The supervisor, host account, kernel, executable, and configured HTTPS consumer are trusted. Host-capable agents under the same Unix UID can steal readable session files or inspect processes. Session identity does not provide OS isolation. An approved consumer receives the credential by design, and revocation cannot recall a delivered value or rotate a remote password.
+
+The owner stops admitting requests after 300 seconds. An in-flight operation and its bounded reply may finish afterward. Sessions require fresh issuance after disconnect, restart, or token consumption. There is no installed background service, remote vault API, website signup automation, or upstream credential rotation. Per-worker resource quotas, rollback resistance, and power-loss durability are not established.
+
+See the [security model](SECURITY.md), [threat model](docs/agent-native/THREAT-MODEL.md), and [runtime reference](docs/agent-native/AGENT-RUNTIME.md) for the enforced boundaries and operational details.

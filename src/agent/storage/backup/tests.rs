@@ -143,11 +143,11 @@ fn restore_preparation_preserves_clock_gate_history_and_settles_unfinished_deliv
 }
 
 #[test]
-fn authenticated_removed_copy_data_refuses_restore_before_publication() {
+fn authenticated_unknown_record_fields_refuse_restore_before_publication() {
     let f = fixture();
     let snapshot = snapshot::encode(&f.owner.app).unwrap();
     let mut value: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
-    value["records"][0]["copy"] = serde_json::json!({"legacy": {"original": "synthetic"}, "restored": false});
+    value["records"][0]["extra_object"] = serde_json::json!({"value": "synthetic"});
     let plaintext = Zeroizing::new(serde_json::to_vec(&value).unwrap());
     let bytes = encrypt_snapshot(&plaintext, BackupSecret::Seed(&f.seed)).unwrap();
     let target = destination();

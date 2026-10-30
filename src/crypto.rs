@@ -12,7 +12,7 @@ pub const SALT_LEN: usize = 16;
 pub const NONCE_LEN: usize = 12;
 pub const KEY_LEN: usize = 32;
 
-/// Argon2id params tuned for ~0.5–1s interactive unlock on a typical laptop.
+/// Argon2id parameters for encrypted store and backup key derivation.
 /// New vaults/backups are written with these; unlock always uses params from the file.
 pub const ARGON2_M_KIB: u32 = 64 * 1024;
 pub const ARGON2_T_COST: u32 = 3;

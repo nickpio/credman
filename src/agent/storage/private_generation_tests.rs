@@ -176,7 +176,7 @@ fn private_generation_consumer_preflight_checks_exact_binding_without_disclosure
     let mut a = approval("a"); a.origin = "https://fixture.invalid:9443".into();
     let mut b = approval("b"); b.origin = a.origin.clone();
     let mut f = fixture_with_approvals(a, b);
-    let service = "fake-app";
+    let service = "test-service";
     let origin = "https://fixture.invalid:9443";
     assert_eq!(f.owner.validate_consumer(&agent("a"), f.ta, service, origin, 3), Ok(()));
     for (ctx, task, service, origin) in [
@@ -209,7 +209,7 @@ fn private_generation_delegated_use_retains_private_handoff_and_revocation_guard
         record: generated.record, expected: 1, grant: grant(),
     }, 3).unwrap();
     let usage = PrivateUse { request: Uuid::new_v4(), record: generated.record,
-        fields: fields(&[Field::Username, Field::Password]), destination: "fake-app".into(), action: PrivateAction::Use };
+        fields: fields(&[Field::Username, Field::Password]), destination: "test-service".into(), action: PrivateAction::Use };
     let mut called = false;
     let delivered = f.owner.use_secret(&agent("b"), f.tb, usage.clone(), &mut || 4, |values| {
         called = true;

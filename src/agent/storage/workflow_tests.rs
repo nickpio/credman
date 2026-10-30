@@ -21,7 +21,7 @@ fn copied_record_cannot_register_even_without_a_prior_delivery_journal() {
 
 pub(super) fn request(record: Uuid, action: PrivateAction) -> PrivateUse {
     PrivateUse { request: Uuid::new_v4(), record, fields: fields(&[Field::Username, Field::Password]),
-        destination: "fake-app".into(), action }
+        destination: "test-service".into(), action }
 }
 
 #[test]

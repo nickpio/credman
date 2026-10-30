@@ -262,7 +262,7 @@ impl Store {
 }
 
 impl DurableVault {
-    /// Uses an existing dedicated 0700 directory, not the legacy user's vault path.
+    /// Uses an existing dedicated directory owned by the user with mode 0700.
     pub(crate) fn create(path: &Path, mnemonic: &str) -> Result<Self, Error> {
         Self::create_from_app(path, mnemonic, Application { generation: 1, ..Application::default() })
     }

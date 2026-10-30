@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "credman", about = "Private native credential broker for supervised agents")]
+#[command(name = "credman", about = "Agent-native credential vault with scoped sharing and private HTTPS use")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -96,9 +96,15 @@ pub(crate) fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
-    fn only_native_commands_and_descriptor_options_are_accepted() {
+    fn supported_commands_and_descriptor_options_are_accepted() {
+        let command = Cli::command();
+        assert_eq!(command.get_subcommands().map(|c| c.get_name()).collect::<Vec<_>>(),
+            ["serve", "mcp", "admin"]);
+        assert_eq!(command.find_subcommand("admin").unwrap().get_subcommands()
+            .map(|c| c.get_name()).collect::<Vec<_>>(), ["backup", "restore", "recover"]);
         assert!(Cli::try_parse_from(["credman", "serve", "--directory", "synthetic", "--seed-fd", "3",
             "--config-fd", "4", "--admin-fd", "5", "--create"]).is_ok());
         assert!(Cli::try_parse_from(["credman", "serve", "--directory", "synthetic", "--seed-fd", "3",
@@ -112,17 +118,12 @@ mod tests {
         assert!(Cli::try_parse_from(["credman", "admin", "--directory", "synthetic", "--seed-fd", "3",
             "--identity-fd", "4", "recover"]).is_ok());
         assert!(Cli::try_parse_from(["credman"]).is_err());
-        for command in ["agent-run", "agent-admin", "init", "status", "backup", "restore", "add", "get",
-            "list", "edit", "rm", "tui", "export", "import", "usb", "clipboard-clear"] {
-            assert!(Cli::try_parse_from(["credman", command]).is_err(), "accepted {command}");
-        }
-        for option in ["--vault", "--seed"] {
+        assert!(Cli::try_parse_from(["credman", "unsupported"]).is_err());
+        for option in ["--unknown", "--seed"] {
             assert!(Cli::try_parse_from(["credman", option, "synthetic", "serve", "--directory", "synthetic",
                 "--seed-fd", "3", "--config-fd", "4", "--admin-fd", "5"]).is_err());
         }
-        for operation in ["import-v1", "import-receipt"] {
-            assert!(Cli::try_parse_from(["credman", "admin", "--directory", "synthetic", "--seed-fd", "3",
-                "--identity-fd", "4", operation]).is_err());
-        }
+        assert!(Cli::try_parse_from(["credman", "admin", "--directory", "synthetic", "--seed-fd", "3",
+            "--identity-fd", "4", "unsupported"]).is_err());
     }
 }

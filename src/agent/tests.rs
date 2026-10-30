@@ -15,14 +15,14 @@ pub(super) fn admin() -> AuthenticatedContext {
 pub(super) fn approval(name: &str) -> TaskApproval {
     TaskApproval {
         id: Uuid::new_v4(), owner: "user".into(), principal: name.into(), workspace: "project".into(),
-        service: "fake-app".into(), origin: "unix:fake-app".into(),
+        service: "test-service".into(), origin: "https://service.example.invalid".into(),
         fields: fields(&[Field::Label, Field::Username, Field::Password, Field::ApiKey, Field::Notes]),
         permissions: permissions(&[Permission::MetadataRead, Permission::SecretUse, Permission::SecretRead,
             Permission::SecretWrite, Permission::AccessGrant, Permission::EntryDelete]),
-        destinations: strings(&["fake-app"]), expires_at: 1000, share: Some(ShareBounds {
+        destinations: strings(&["test-service"]), expires_at: 1000, share: Some(ShareBounds {
             recipients: strings(&["b"]), fields: fields(&[Field::Username, Field::Password]),
             permissions: permissions(&[Permission::SecretUse, Permission::SecretRead, Permission::MetadataRead]),
-            destinations: strings(&["fake-app"]), expires_at: 500,
+            destinations: strings(&["test-service"]), expires_at: 500,
         }),
     }
 }
@@ -42,7 +42,7 @@ pub(super) fn setup() -> (Application, Uuid, Uuid, Receipt) {
 }
 pub(super) fn grant() -> GrantSpec {
     GrantSpec { recipient: "b".into(), fields: fields(&[Field::Username, Field::Password]),
-        permissions: permissions(&[Permission::SecretUse]), destinations: strings(&["fake-app"]),
+        permissions: permissions(&[Permission::SecretUse]), destinations: strings(&["test-service"]),
         expires_at: 100, follow_active: false }
 }
 fn share(app: &mut Application, ta: Uuid, record: Uuid, spec: GrantSpec) -> Receipt {
@@ -56,8 +56,8 @@ fn create_returns_reference_and_immutable_user_provenance() {
     assert_eq!(r.owner, "user");
     assert_eq!(r.created_by, "a");
     assert_eq!(r.task, ta);
-    assert_eq!(r.service, "fake-app");
-    assert_eq!(r.origin, "unix:fake-app");
+    assert_eq!(r.service, "test-service");
+    assert_eq!(r.origin, "https://service.example.invalid");
     assert_eq!(r.kind, CredentialKind::Login);
     assert_eq!(r.signup, SignupState::Pending);
     assert!(!r.restored);
@@ -85,7 +85,7 @@ fn use_grant_is_not_read_metadata_write_delete_or_reshare_permission() {
     let (mut app, ta, tb, r) = setup();
     share(&mut app, ta, r.record, grant());
     let result = app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Username, Field::Password]),
-        "fake-app", 4, |values| {
+        "test-service", 4, |values| {
             assert_eq!(values[&Field::Password], "FAKE-canary-password");
             assert_eq!(values.len(), 2);
             Ok(DeliveryStatus::Accepted)
@@ -105,11 +105,11 @@ fn use_grant_is_not_read_metadata_write_delete_or_reshare_permission() {
 fn private_use_checks_fields_destination_and_never_falls_back() {
     let (mut app, ta, tb, r) = setup();
     share(&mut app, ta, r.record, grant());
-    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Notes]), "fake-app", 4,
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Notes]), "test-service", 4,
         |_| panic!("unauthorized field reached adapter")).unwrap_err(), Error::Denied);
     assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "evil", 4,
         |_| panic!("unauthorized destination reached adapter")).unwrap_err(), Error::Denied);
-    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 4,
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 4,
         |_| Err(Error::InteractionRequired)).unwrap_err(), Error::InteractionRequired);
 }
 
@@ -135,13 +135,13 @@ fn revocation_and_exact_expiry_boundary_block_future_access() {
         record: r.record, expected: 2, grant: shared.grant.unwrap(),
     }, 4).unwrap();
     assert_eq!(revoked.revision, 3);
-    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 4,
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 4,
         |_| panic!("revoked grant reached adapter")).unwrap_err(), Error::Denied);
     let (mut app, ta, tb, r) = setup();
     share(&mut app, ta, r.record, grant());
-    app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 99,
+    app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 99,
         |_| Ok(DeliveryStatus::Accepted)).unwrap();
-    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 100,
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 100,
         |_| panic!("expired grant reached adapter")).unwrap_err(), Error::Denied);
 }
 
@@ -179,9 +179,9 @@ fn patches_cannot_widen_policy_and_stale_updates_do_not_mutate() {
     let stored = &app.records[&r.record];
     assert_eq!(stored.created_by, "a");
     assert_eq!(stored.task, ta);
-    assert_eq!(stored.origin, "unix:fake-app");
+    assert_eq!(stored.origin, "https://service.example.invalid");
     assert_eq!(stored.secret_version, 2);
-    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 5,
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 5,
         |_| panic!("rotation must invalidate pinned grant")).unwrap_err(), Error::Denied);
     assert_eq!(app.read_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), 5).unwrap_err(), Error::Denied);
 }
@@ -241,7 +241,7 @@ fn delete_erases_fields_and_retries_without_double_revision() {
     assert_eq!(app.mutate(&agent("a"), ta, request, op, 4).unwrap(), deleted);
     assert!(app.records[&r.record].values.0.is_empty());
     assert_eq!(app.read_secret(&agent("a"), ta, r.record, fields(&[Field::Password]), 4).unwrap_err(), Error::Denied);
-    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 4,
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 4,
         |_| panic!("deleted record reached adapter")).unwrap_err(), Error::Denied);
 }
 
@@ -299,7 +299,7 @@ fn metadata_only_task_cannot_read_use_write_or_create() {
 fn audit_and_error_output_have_no_credential_content() {
     let (mut app, ta, tb, r) = setup();
     share(&mut app, ta, r.record, grant());
-    app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 4,
+    app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 4,
         |_| Ok(DeliveryStatus::Unknown)).unwrap();
     let events = app.audit_events(&admin()).unwrap();
     assert!(events.iter().any(|e| e.action == AuditAction::SecretUse));
@@ -350,7 +350,7 @@ fn username_patch_invalidates_entire_pinned_grant_and_follow_active_is_rejected(
         record: r.record, expected: 2, values: input(&[(Field::Username, "changed-fixture-user")]),
     }, 4).unwrap();
     assert_eq!(app.records[&r.record].secret_version, 2);
-    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 5,
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 5,
         |_| panic!("username rotation must invalidate the whole grant")).unwrap_err(), Error::Denied);
 }
 
@@ -363,7 +363,7 @@ fn issuer_task_revocation_and_expiry_invalidate_grants_and_cached_retries() {
         app.mutate(&agent("a"), ta, request, op.clone(), 3).unwrap();
         if revoke { app.revoke_task(&admin(), ta, 4).unwrap(); }
         else { app.tasks.get_mut(&ta).unwrap().expires_at = 4; }
-        assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 4,
+        assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 4,
             |_| panic!("inactive issuer task reached private delivery")).unwrap_err(), Error::Denied);
         assert_eq!(app.mutate(&agent("a"), ta, request, op, 4).unwrap_err(), Error::Denied);
     }
@@ -387,7 +387,7 @@ fn rejected_and_human_required_delivery_statuses_are_safe() {
     for status in [DeliveryStatus::Rejected, DeliveryStatus::HumanRequired] {
         let (mut app, ta, tb, r) = setup();
         share(&mut app, ta, r.record, grant());
-        let result = app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "fake-app", 4,
+        let result = app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 4,
             |_| Ok(status)).unwrap();
         assert_eq!(result.status, status);
         assert!(!serde_json::to_string(&result).unwrap().contains("FAKE-canary"));

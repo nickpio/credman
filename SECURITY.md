@@ -14,7 +14,7 @@ Host-capable agents running under the human's Unix UID are not isolated principa
 
 The shared crypto implementation uses Argon2id, a random 16-byte salt, a 256-bit key, and AES-256-GCM with a fresh 12-byte nonce for each encrypted image. Header values and lengths are bounded before expensive processing. Backup envelopes authenticate their version, secret kind, KDF parameters, and salt inside encrypted plaintext.
 
-The seed and supervisor configuration enter through distinct inherited descriptors above stdin, stdout, and stderr. Workload and administration sockets cannot alias. Transferred descriptors are close-on-exec, and unlisted descriptors are closed. There is no seed argument, environment-variable unlock, interactive reveal, clipboard, or USB helper.
+The seed and supervisor configuration enter through distinct inherited descriptors above stdin, stdout, and stderr. Workload and administration sockets cannot alias. Transferred descriptors are close-on-exec, and unlisted descriptors are closed. Unlock material stays outside command arguments and environment variables.
 
 Keys and sensitive buffers use zeroization where practical. This does not prove that copies cannot remain in process memory, swap, crash dumps, or another trusted component.
 
@@ -42,19 +42,19 @@ Tasks restrict owner, principal, workspace, service, origin, fields, permissions
 
 `SecretUse` sends authorized values to an approved fixed HTTPS destination and returns only delivery status and references. The destination receives the authorized secret by design. `SecretRead` does not authorize MCP disclosure: the MCP catalog has no read tool, and the owner rejects raw reads from workload peers. A trusted human can import or read secrets and issue scoped read grants through the private administration channel when the task permits it. Workload peers cannot issue read grants. Revocation blocks future vault access; it cannot recall a value already sent to a destination or rotate an upstream password.
 
-The fake-application adapter is removed. Private use performs only a fixed verified-HTTPS GET with Basic or Bearer authentication. Destination service and origin must match the approved task. The broker prepares the child before final authorization. The handoff callback supplies the private configuration after authorization; a cached attempt does not dispatch again. Response body, headers, and curl stderr are discarded, not scanned. Delivery status does not prove login, registration, or account creation. Unknown outcomes are not automatically redispatched. An untrusted agent report is not verified login evidence. There is no portable private injection guarantee across the harnesses.
+Private use performs only a fixed verified-HTTPS GET with Basic or Bearer authentication. Destination service and origin must match the approved task. The broker prepares the child before final authorization. The handoff callback supplies the private configuration after authorization; a cached attempt does not dispatch again. Response body, headers, and curl stderr are discarded, not scanned. Delivery status does not prove login, registration, or account creation. Unknown outcomes are not automatically redispatched. An untrusted agent report is not verified login evidence. There is no portable private injection guarantee across the harnesses.
 
 ## Input and output boundaries
 
 Workload transport uses bounded length-prefixed JSON with duplicate-key, depth, schema, and deadline checks. Identity-widening request fields are rejected. Oversized generated responses return a bounded error; malformed or poisoned channels close.
 
-State and backup decoding enforce strict schemas, bounds, and cross-record invariants. Removing the unused prototype formats does not add a permissive migration reader. Old attachments and unknown fields are not silently discarded.
+State and backup decoding enforce strict schemas, bounds, and cross-record invariants. Unsupported schemas and unknown fields are rejected.
 
 Offline backup writes only to a validated, empty private regular file or private pipe through an explicit descriptor. Output cannot alias an input resource. Offline administration stdout is not a backup or plaintext-export channel. MCP stdout carries only protocol messages and approved nonsecret metadata; it never returns credential secret fields. Authorized human secret reads use the separate private administration channel. Invalid JSON, unsupported methods, and errors must not echo credential or attachment input. Seed and backup-secret text inputs are capped at 4096 bytes, identity at 64 KiB, and encrypted backup input at 32 MiB.
 
 ## Backup and recovery
 
-Encrypted backups support a seed or a separate passphrase. The destination store seed can differ from the backup secret. Restore validates the entire backup before publication, refuses an existing destination image, revokes previous tasks and grants, and requires fresh approval. Restored records cannot register again, including after patches, restart, or recovery.
+Encrypted backups support a seed or a separate passphrase. The destination store seed can differ from the backup secret. Restore validates the entire backup before publication, refuses an existing destination image, revokes previous tasks and grants, and requires fresh approval.
 
 Explicit recovery requires human context, matching scope, the seed, and valid retained encrypted evidence. Recovery revokes authority and resolves unfinished delivery outcomes conservatively. Tests with crafted journals and injected publication failures do not reproduce arbitrary disk failure or power loss.
 
@@ -64,7 +64,7 @@ Keep encrypted backups and their secrets separate. An administrative recovery co
 
 The worker launcher checks a reviewed sandbox path, not arbitrary host-capable agents. Memory, PID, CPU, and tmpfs quotas are not enforced per worker. The runtime does not protect against a compromised host account or kernel, a replaced binary, storage deletion or rollback, or copies made after authorized disclosure. Audit events are bounded records, not a tamper-evident log.
 
-The unused terminal prototype, legacy formats, old import path, command aliases, and fake application adapter are removed. Synthetic data and historical verification records remain evidence only. No real credentials or production provider are part of bridge validation. Current client/protocol evidence is recorded separately from earlier checks.
+Verification uses synthetic credentials, isolated homes, and private loopback HTTPS endpoints. Installed-client diagnostics establish connection and discovery only; they do not establish model-driven credential workflows or production-provider integration.
 
 ## Reporting a security issue
 

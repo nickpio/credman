@@ -1,53 +1,50 @@
-# Threat model for the agent credential vault
+# Threat model
 
-Status: design threat model and proposed acceptance criteria, not blanket implemented guarantees. The [current runtime reference](AGENT-RUNTIME.md) identifies tested synthetic boundaries and unimplemented production protections. The [first storage slice](IMPLEMENTATION-STATUS.md) is historical evidence limited to its original source and checks. Neither document certifies power-loss durability, hostile same-UID isolation, or production migration safety.
+Credman protects user-owned credentials while supervised agents share scoped access and use approved HTTPS consumers. This model covers the Linux owner, Unix-socket sessions, MCP frontends, encrypted storage, and private human administration.
 
-## What is protected
+## Assets
 
-Credential values, sensitive account metadata, user ownership, and record access grants are protected assets. A malicious or compromised agent, prompt injection, an unrelated local process, or an accidental log must not gain broader access than the user authorized.
+Protected assets include the root seed, derived keys, credential values, sensitive metadata, session tokens, task approvals, grants, revisions, retry receipts, delivery journals, and audit events.
 
-The vault process is trusted with unlocked material. A compromised vault service, privileged host, or administration identity defeats this local policy boundary. The design does not protect a credential from a website that legitimately receives it, or from an authorized consumer after plaintext disclosure.
+## Trusted components
 
-## Identity and permissions
+The supervisor controls task approval, principal assignment, destination configuration, and private human channels. The host account, kernel, executable, toolchain, and approved consumer are trusted. Seed possession together with encrypted state permits offline access. An approved consumer receives authorized credential values by design.
 
-Authenticate the consumer through an enforced workload/runtime boundary. An `agent_name` or credential reference in a message is not proof of identity or permission. Linux peer credentials identify the connected process, not a model persona.[5] Current agents sharing the human's login need a real isolation change before per-agent policy can be claimed.
+A host-capable agent sharing the human's Unix UID is a trusted host operator. The runtime does not isolate such an agent from readable session files, process memory, or administration resources. Deployments requiring hostile-worker isolation must enforce that boundary in their launcher.
 
-Separate user administration from agent access. Human unlock is not an all-agents grant. An agent cannot approve its own sharing escalation or claim user intent merely by describing a task. Bound create/write/use rights to the authorized task, workspace and service. Grants have explicit recipients, fields, permissions, expiry, and delegation limits. A delegate cannot amplify rights or re-share by default.
+## Agent capabilities and controls
 
-## Sharing and secret delivery
+| Attempt | Enforced control |
+|---------|------------------|
+| Guess a record or task ID | IDs convey no authority; requests use the authenticated channel context |
+| Forge a principal, owner, workspace, or administrator claim | Request schemas reject identity fields; the owner binds context before requests |
+| Read an unshared record | Task permissions and current field-scoped grants are required |
+| Extract credentials through MCP | Tools return metadata, references, and receipts; plaintext reads are confined to private human administration |
+| Widen a share or re-share without approval | Issuer sharing bounds constrain recipient, fields, permissions, destinations, and expiry |
+| Reuse a revoked, expired, or changed credential grant | Current authority and pinned value versions are checked, including cached requests |
+| Reuse an attachment credential | Tokens attach once, expire within the owner lifetime, and are revocable |
+| Redirect a secret to another consumer | The supervisor configures the fixed HTTPS URL and authentication scheme; redirects and proxies are disabled |
+| Smuggle commands or headers through credential values | Values are validated and escaped for a fixed curl invocation using private stdin |
+| Replay an uncertain delivery | Durable attempt journals retain outcomes without automatic redispatch |
+| Submit malformed or oversized data | Bounded strict decoding rejects duplicate keys, unknown fields, invalid lengths, and excessive depth |
+| Exploit ambiguous storage publication | The owner freezes access and requires explicit human recovery |
+| Restore stale task authority | Restore and recovery revoke retained approvals and grants |
 
-Share references and grants, not plaintext chat messages or duplicate secret exports. Metadata listing is also access-controlled. Secret field changes must not modify approved origins or widen recipient permissions implicitly.
+## Persistence and disclosure boundaries
 
-Private tool/browser injection is preferred, but requires a real adapter outside ordinary model-visible tool responses. MCP's stdio transport is not a sandbox and its local peers share a trust domain.[1] Its authorization specification covers HTTP-based transports; it does not establish per-record permissions or secret-safe delivery for this application.[7]
+Records and access-control state are persisted together inside authenticated encrypted snapshots. Unique private temporary files, file sync, atomic publication, and directory sync define the local-filesystem commit boundary. Recovery uses validated retained evidence and does not silently reuse stale in-memory authority.
 
-An explicit `secret.read` permission is a disclosure boundary. A recipient can copy the value. Vault grant expiry/revocation stops future retrieval, not use of a copied static password. Vault's lease documentation likewise distinguishes leased credentials from arbitrary key-value secrets, which do not issue leases.[3] Upstream invalidation needs actual rotation/revocation; local deletion is not account deletion.
+Private use rechecks task, grant, and attached-session expiry immediately before the delivery callback, after durable intent publication. Revocation orders subsequent access through the single owner. It cannot recall values already delivered or undo an external action.
 
-## Signup lifecycle and data integrity
+An explicit human `SecretRead` is disclosure. The authorized recipient can copy the value. Audit entries exclude credential content but are bounded and are not tamper-evident against host administrators.
 
-The account-creation tool is separate from the vault. Persist generated credentials before submitting a signup when supported. If the external outcome is uncertain, retain the credential and mark the outcome unknown. Do not lose the only password, invent a verified login status, or create duplicate accounts automatically. Human email/MFA steps remain explicit.
+## Validation requirements
 
-Serialize record/grant mutations through one owner, use expected revisions for updates, and make credential creation idempotent within a scoped task/request ID. A metadata update cannot overwrite a newer secret or expand an ACL. Secret and permission commits need defined failure behavior; never publish a successful share before persistence succeeds.
+- Unshared records, forged identities, widened grants, stale revisions, revoked tasks, expired sessions, and pinned-version mismatches fail.
+- Generated credentials remain absent from MCP responses, errors, audit entries, and persisted plaintext files.
+- Basic and Bearer delivery reach only the configured verified-TLS endpoint. Invalid certificates and redirects do not disclose credentials to another endpoint.
+- Cached successful requests require current authority. Uncertain delivery and lost replies do not cause automatic redispatch.
+- Corrupt snapshots and backups fail closed. Publication faults preserve recovery evidence, and human recovery settles incomplete attempts conservatively.
+- Restored records remain accessible only after fresh task approval and grants. Offline administration closes unrelated inherited descriptors.
 
-Keep encrypted fields and sensitive metadata out of plaintext policy sidecars, logs, debug output and ordinary agent responses. Audit actor, opaque record/grant ID, action, decision and safe outcome only. Do not log request bodies or secret values. Ciphertext, temporary files, service storage and migration backups retain private permissions and crash-safe writes.
-
-## Required negative checks before release
-
-- Agent B cannot discover/read/use Agent A's unshared record, including with a guessed reference or forged name.
-- A scoped grant reveals/delivers only its permitted fields and destination; B cannot re-share or expand it.
-- Expired/revoked grants and stale revisions fail. Concurrent access cannot bypass a committed revocation or overwrite a newer record.
-- Synthetic secrets do not appear in use-path model responses, chat, errors, audit or debug output. An explicitly authorized plaintext-read path is tested as disclosure, not mislabeled hidden injection.
-- A malformed/failed tool handoff does not fall back to printing secrets. Untrusted site text cannot authorize broader storage, sharing or signup.
-- Failed/ambiguous signup preserves recoverable credentials and honest lifecycle status.
-- Old binaries cannot silently save over a richer schema. Interrupted migration and storage failures preserve the last usable vault.
-- Actual isolated agent identities cannot read service files/process memory or use the administration channel. Same-user unit tests do not prove this isolation.
-
-The [specialist review](SPECIALIST-REVIEW.md) adds source-checked persistence/import risks and the implementation order. Specify the clock and authorization/handoff point for expiry/revocation, including queued/in-flight uses and descendant grants. A cache hit or matching import ID must not bypass current authority. These are required policy definitions, not new runtime guarantees.
-
-Revocation cannot recall already delivered material or undo an external action. Audit is not tamper-proof against host administrators merely because the vault wrote it. All integration/isolation/schema claims still require implementation evidence.
-
-## Sources
-
-[1] https://modelcontextprotocol.io/docs/2026-07-28/tutorials/security/local-server-security
-[3] https://developer.hashicorp.com/vault/docs/concepts/lease
-[5] https://man7.org/linux/man-pages/man7/unix.7.html
-[7] https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization
+The [verification commands](../../README.md#verify) exercise these paths with synthetic data. They do not prove hostile-host safety, cryptographic correctness, storage rollback resistance, power-loss behavior, or per-worker resource limits. See [security](../../SECURITY.md) for operational constraints.

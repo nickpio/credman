@@ -48,20 +48,16 @@ pub(crate) enum WorkRequest {
     Generate { task: Uuid, request: Uuid, kind: CredentialKind, #[serde(default)] username: Option<String> },
     Mutate { task: Uuid, request: Uuid, mutation: Mutation },
     Metadata { task: Uuid, record: Uuid, fields: Fields },
-    // Parse the retired operation only to return the same non-disclosing denial.
-    Read { task: Uuid, #[serde(rename = "record")] _record: Uuid,
-        #[serde(rename = "fields")] _fields: Fields },
     Use { task: Uuid, usage: PrivateUse },
 }
 impl WorkRequest {
     fn task(&self) -> Uuid {
         match self { Self::Generate { task, .. } | Self::Mutate { task, .. } | Self::Metadata { task, .. }
-            | Self::Read { task, .. } | Self::Use { task, .. } => *task }
+            | Self::Use { task, .. } => *task }
     }
 
     pub(crate) fn validate_agent(&self) -> Result<(), Error> {
         match self {
-            Self::Read { .. } => Err(Error::Denied),
             Self::Mutate { mutation, .. } => match mutation {
                 Mutation::Create { .. } | Mutation::Generate { .. } => Err(Error::Denied),
                 Mutation::Patch { values, .. } if !values.metadata_only() => Err(Error::Denied),
@@ -96,7 +92,7 @@ enum AdminRequest { Control(AdminControl), Work(WorkRequest) }
 impl AdminRequest {
     fn parse(value: Value) -> Result<Self, Error> {
         match value.get("op").and_then(Value::as_str) {
-            Some("generate" | "mutate" | "metadata" | "read" | "use") =>
+            Some("generate" | "mutate" | "metadata" | "use") =>
                 serde_json::from_value(value).map(Self::Work).map_err(|_| Error::Invalid),
             _ => serde_json::from_value(value).map(Self::Control).map_err(|_| Error::Invalid),
         }
@@ -204,7 +200,6 @@ fn work(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: WorkReque
             let fields = owner.metadata(ctx, task, record, fields, now())?;
             Ok(json!({"ok": true, "fields": fields}))
         }
-        WorkRequest::Read { .. } => Err(Error::Denied),
         WorkRequest::Use { task, usage } => {
             let destination = destinations.iter().find(|destination| destination.id == usage.destination)
                 .ok_or(Error::Denied)?;
@@ -399,8 +394,9 @@ mod tests {
     #[test]
     fn raw_workloads_cannot_cross_the_plaintext_or_grant_boundary() {
         let id = Uuid::from_u128(2);
+        assert!(serde_json::from_value::<WorkRequest>(json!({"op":"read", "task":id,
+            "record":id,"fields":["Password"]})).is_err());
         for value in [
-            json!({"op":"read","record":id,"fields":["Password"]}),
             json!({"op":"metadata","record":id,"fields":["Password"]}),
             json!({"op":"metadata","record":id,"fields":["ApiKey"]}),
             json!({"op":"mutate","request":id,"mutation":{"Create":{"kind":"ApiKey","values":{"ApiKey":"synthetic"}}}}),

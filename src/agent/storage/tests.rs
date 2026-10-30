@@ -19,7 +19,7 @@ pub(super) fn reapprove(owner: &mut DurableVault, record: Uuid, now: Time) -> Uu
     owner.mutate(&admin(), th, Uuid::new_v4(), Mutation::Share { record, expected, grant: GrantSpec {
         recipient: "a".into(), fields: fields(&[Field::Username, Field::Password]),
         permissions: [Permission::SecretUse, Permission::SecretWrite].into_iter().collect(),
-        destinations: ["fake-app".into()].into_iter().collect(), expires_at: 100, follow_active: false,
+        destinations: ["test-service".into()].into_iter().collect(), expires_at: 100, follow_active: false,
     } }, now).unwrap();
     ta
 }
@@ -168,12 +168,12 @@ fn share_request_and_issuer_revocation_remain_atomic_after_reopen() {
     let mut owner = DurableVault::open(f.dir.path(), &f.seed).unwrap();
     assert_eq!(owner.mutate(&agent("a"), f.ta, request, share.clone(), 4).unwrap(), shared);
     assert_eq!(owner.app.grants.len(), 1);
-    owner.use_fixed(&agent("b"), f.tb, f.receipt.record, fields(&[Field::Password]), "fake-app", 4,
+    owner.use_fixed(&agent("b"), f.tb, f.receipt.record, fields(&[Field::Password]), "test-service", 4,
         |_| Ok(DeliveryStatus::Accepted)).unwrap();
     owner.revoke_task(&admin(), f.ta, 5).unwrap();
     drop(owner);
     let mut owner = DurableVault::open(f.dir.path(), &f.seed).unwrap();
-    assert_eq!(owner.use_fixed(&agent("b"), f.tb, f.receipt.record, fields(&[Field::Password]), "fake-app", 6,
+    assert_eq!(owner.use_fixed(&agent("b"), f.tb, f.receipt.record, fields(&[Field::Password]), "test-service", 6,
         |_| panic!("revoked issuer task reached adapter after restart")).unwrap_err(), Error::Denied);
     assert_eq!(owner.mutate(&agent("a"), f.ta, request, share, 6).unwrap_err(), Error::Denied);
 }
@@ -182,7 +182,7 @@ fn share_request_and_issuer_revocation_remain_atomic_after_reopen() {
 fn unfinished_private_handoff_freezes_on_unwind_and_gates_restart() {
     let mut f = fixture();
     let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = f.owner.use_fixed(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), "fake-app", 3,
+        let _ = f.owner.use_fixed(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), "test-service", 3,
             |_| -> Result<DeliveryStatus, Error> { panic!("synthetic adapter interruption") });
     }));
     assert!(crashed.is_err());
@@ -196,7 +196,7 @@ fn unfinished_private_handoff_freezes_on_unwind_and_gates_restart() {
 fn terminal_private_outcomes_are_persisted_without_plaintext_responses() {
     let mut f = fixture();
     for status in [DeliveryStatus::Rejected, DeliveryStatus::HumanRequired, DeliveryStatus::Unknown] {
-        let receipt = f.owner.use_fixed(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), "fake-app", 3,
+        let receipt = f.owner.use_fixed(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), "test-service", 3,
             |_| Ok(status)).unwrap();
         assert_eq!(receipt.status, status);
         assert!(!serde_json::to_string(&receipt).unwrap().contains("FAKE-canary"));
@@ -233,7 +233,7 @@ fn symlinked_parent_lock_or_state_and_unsafe_directory_are_rejected() {
 fn final_handoff_resamples_expiry_after_intent_publication() {
     let mut f = fixture();
     let request = PrivateUse { request: Uuid::new_v4(), record: f.receipt.record,
-        fields: fields(&[Field::Password]), destination: "fake-app".into(), action: PrivateAction::Use };
+        fields: fields(&[Field::Password]), destination: "test-service".into(), action: PrivateAction::Use };
     let mut samples = [3, 1000].into_iter();
     let mut called = false;
     let result = f.owner.use_secret(&agent("a"), f.ta, request,

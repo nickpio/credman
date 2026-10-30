@@ -103,7 +103,7 @@ fn valid_origin(origin: &str) -> bool {
     if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
         return host == ip.to_string();
     }
-    // Curl accepts legacy numeric/hex/octal IPv4 spellings. Do not treat those as DNS.
+    // Curl accepts alternative numeric/hex/octal IPv4 spellings. Do not treat those as DNS.
     if host.split('.').all(|label| {
         (!label.is_empty() && label.bytes().all(|b| b.is_ascii_digit()))
             || label
