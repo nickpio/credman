@@ -328,7 +328,7 @@ impl DurableVault {
     pub(crate) fn mutate(&mut self, ctx: &AuthenticatedContext, task: Uuid, request: Uuid, op: Mutation, now: Time) -> Result<Receipt, Error> {
         self.apply(|app| app.mutate(ctx, task, request, op, now))
     }
-    pub(crate) fn metadata(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid, fields: Fields, now: Time) -> Result<BTreeMap<Field, String>, Error> {
+    pub(crate) fn metadata(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid, fields: Fields, now: Time) -> Result<MetadataView, Error> {
         self.apply(|app| app.metadata(ctx, task, record, fields, now))
     }
     #[cfg(test)]
@@ -339,9 +339,7 @@ impl DurableVault {
     /// Trusted consumer configuration preflight only. Final SecretUse authorization remains in use_secret.
     pub(crate) fn validate_consumer(&self, ctx: &AuthenticatedContext, task: Uuid, service: &str, origin: &str, now: i64) -> Result<(), Error> {
         self.ready()?;
-        if self.app.clock_frozen || self.app.last_time.is_some_and(|last| now < last) {
-            return Err(Error::ClockRecoveryRequired);
-        }
+        let now = self.app.effective_time(now)?;
         let approved = self.app.task(ctx, task, now)?;
         if approved.service != service || approved.origin != origin { return Err(Error::Denied); }
         Ok(())
@@ -351,7 +349,7 @@ impl DurableVault {
     pub(crate) fn import_for_task(&mut self, admin: &AuthenticatedContext, task: Uuid, request: Uuid,
         kind: CredentialKind, values: SecretInput, now: i64) -> Result<Receipt, Error> {
         self.apply(|app| {
-            app.clock(now)?;
+            let now = app.clock(now)?;
             let ctx = app.trusted_task_context(admin, task, now)?;
             app.mutate(&ctx, task, request, Mutation::Create { kind, values }, now)
         })
@@ -361,7 +359,7 @@ impl DurableVault {
     pub(crate) fn read_for_task(&mut self, admin: &AuthenticatedContext, task: Uuid, record: Uuid,
         fields: Fields, now: i64) -> Result<Disclosure, Error> {
         self.apply(|app| {
-            app.clock(now)?;
+            let now = app.clock(now)?;
             let ctx = app.trusted_task_context(admin, task, now)?;
             app.read_secret(&ctx, task, record, fields, now)
         })

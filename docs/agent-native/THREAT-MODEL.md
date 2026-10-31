@@ -21,7 +21,7 @@ A host-capable agent sharing the human's Unix UID is a trusted host operator. Th
 | Read an unshared record | Task permissions and current field-scoped grants are required |
 | Extract credentials through MCP | Tools return metadata, references, and receipts; plaintext reads are confined to private human administration |
 | Widen a share or re-share without approval | Issuer sharing bounds constrain recipient, fields, permissions, destinations, and expiry |
-| Reuse a revoked, expired, or changed credential grant | Current authority and pinned value versions are checked, including cached requests |
+| Reuse a revoked, expired, or changed credential grant | Current authority is rechecked, including cached requests. Pinned grants match one secret version; `follow_active` grants allow later versions. Metadata edits do not rotate the secret version |
 | Reuse an attachment credential | Tokens attach once, expire within the owner lifetime, and are revocable |
 | Redirect a secret to another consumer | The supervisor configures the fixed HTTPS URL and authentication scheme; redirects and proxies are disabled |
 | Smuggle commands or headers through credential values | Values are validated and escaped for a fixed curl invocation using private stdin |
@@ -36,11 +36,11 @@ Records and access-control state are persisted together inside authenticated enc
 
 Private use rechecks task, grant, and attached-session expiry immediately before the delivery callback, after durable intent publication. Revocation orders subsequent access through the single owner. It cannot recall values already delivered or undo an external action.
 
-An explicit human `SecretRead` is disclosure. The authorized recipient can copy the value. Audit entries exclude credential content but are bounded and are not tamper-evident against host administrators.
+An explicit human `SecretRead` is disclosure. The authorized recipient can copy the value. Audit entries record the acting principal and time, exclude credential content, and are bounded rather than tamper-evident against host administrators.
 
 ## Validation requirements
 
-- Unshared records, forged identities, widened grants, stale revisions, revoked tasks, expired sessions, and pinned-version mismatches fail.
+- Unshared records, forged identities, widened grants, stale revisions, revoked tasks, expired sessions, and secret-version mismatches on pinned grants fail. `follow_active` grants survive secret rotation and still honor recipient, field, permission, destination, and expiry bounds.
 - Generated credentials remain absent from MCP responses, errors, audit entries, and persisted plaintext files.
 - Basic and Bearer delivery reach only the configured verified-TLS endpoint. Invalid certificates and redirects do not disclose credentials to another endpoint.
 - Cached successful requests require current authority. Uncertain delivery and lost replies do not cause automatic redispatch.

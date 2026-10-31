@@ -1,12 +1,13 @@
 use super::*;
 use super::tests::{fixture, fixture_with_approvals};
 use super::super::tests::{admin, agent, approval, fields, grant, input};
+use super::super::CLOCK_SKEW_TOLERANCE;
 use std::fs;
 
 fn login() -> Mutation {
-    Mutation::Generate { kind: CredentialKind::Login, username: Some("public-generated-user".into()) }
+    Mutation::Generate { kind: CredentialKind::Login, username: Some("public-generated-user".into()), policy: None }
 }
-fn api_key() -> Mutation { Mutation::Generate { kind: CredentialKind::ApiKey, username: None } }
+fn api_key() -> Mutation { Mutation::Generate { kind: CredentialKind::ApiKey, username: None, policy: None } }
 fn draws() -> usize { GENERATION_DRAWS.with(|draws| draws.get()) }
 
 #[test]
@@ -191,7 +192,9 @@ fn private_generation_consumer_preflight_checks_exact_binding_without_disclosure
         assert_eq!(f.owner.validate_consumer(&ctx, task, service, origin, 3), Err(Error::Denied));
     }
     assert_eq!(f.owner.validate_consumer(&agent("a"), f.ta, service, origin, 1000), Err(Error::Denied));
-    assert_eq!(f.owner.validate_consumer(&agent("a"), f.ta, service, origin, 1), Err(Error::ClockRecoveryRequired));
+    assert_eq!(f.owner.validate_consumer(&agent("a"), f.ta, service, origin, 2 - CLOCK_SKEW_TOLERANCE), Ok(()));
+    assert_eq!(f.owner.validate_consumer(&agent("a"), f.ta, service, origin, 2 - (CLOCK_SKEW_TOLERANCE + 1)), Err(Error::ClockRecoveryRequired));
+    assert!(!f.owner.app.clock_frozen);
     f.owner.revoke_task(&admin(), f.ta, 4).unwrap();
     assert_eq!(f.owner.validate_consumer(&agent("a"), f.ta, service, origin, 4), Err(Error::Denied));
     f.owner.app.clock_frozen = true;

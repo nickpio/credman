@@ -71,11 +71,13 @@ Agent channels use the same bounded length-prefixed JSON framing as administrati
 | `credman_metadata` | `metadata` | `task`, `record`, `fields` |
 | `credman_use` | `use` | `task`, `usage` |
 
-`generate` accepts kind `Login` with a public username or `ApiKey` without a username. The owner generates a private 32-character value and returns a record receipt. Reusing the same request UUID and specification returns the same receipt under current authority; changed specifications conflict.
+`generate` accepts kind `Login` with a public username or `ApiKey` without a username. The owner generates a private value and returns a record receipt. The default is 32 characters from `A-Za-z0-9-_`. An optional policy sets the length from 16 to 128, can add symbols, and can require every included character class. Sampling stays uniform, including alphabets whose size is not a power of two. The MCP schema does not expose that policy yet, so MCP generation uses the default. Reusing the same request UUID and specification returns the same receipt under current authority; changed specifications conflict.
 
-Agent mutations are externally tagged `Patch`, `Delete`, `Share`, `Revoke`, or `ReportOutcome` objects. Record mutations use expected revisions. Patches accept metadata only. Agent-created read grants, plaintext creation, and secret patches are rejected. Outcome reports are untrusted and cannot establish a verified login.
+Agent mutations are externally tagged `Patch`, `Delete`, `Share`, `Revoke`, or `ReportOutcome` objects. Record mutations use expected revisions. Patches from an agent accept metadata only. A metadata patch advances the revision and leaves the secret version, signup state, and existing grants unchanged. A patch that includes a secret field rotates the secret version, returns signup to pending, and invalidates pinned grants. Agent-created read grants, plaintext creation, and secret patches are rejected. `follow_active` grants remain valid for the issued secret version and later rotations; pinned grants match one version. The MCP share schema still requires `follow_active` to be false. Outcome reports are untrusted and cannot establish a verified login.
 
-`metadata` accepts approved `Label`, `Username`, and `Notes` fields. Agent requests have no plaintext secret-read operation. Explicit human reads use the administration channel.
+`metadata` accepts approved `Label`, `Username`, and `Notes` fields. The response includes the record revision, signup state, and those nonsecret values. Agent requests have no plaintext secret-read operation. Explicit human reads use the administration channel.
+
+The owner keeps a trusted-clock high-water mark. A backward step of at most five seconds does not freeze the vault or move that mark backward; expiry checks use the mark. A larger backward step freezes access until human recovery.
 
 `usage` contains `request`, `record`, `fields`, `destination`, and `action`. Only action `Use` is supported. Basic destinations require exactly `Username` and `Password`; Bearer destinations require exactly `ApiKey`.
 

@@ -19,6 +19,8 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 pub(crate) type Time = i64;
+/// Backward steps at or below this many seconds keep the high-water mark and do not freeze the vault.
+pub(crate) const CLOCK_SKEW_TOLERANCE: Time = 5;
 pub(crate) type Fields = BTreeSet<Field>;
 pub(crate) type Permissions = BTreeSet<Permission>;
 
@@ -177,19 +179,36 @@ pub(crate) struct GrantSpec {
     pub(crate) permissions: Permissions,
     pub(crate) destinations: BTreeSet<String>,
     pub(crate) expires_at: Time,
-    /// Must be false in this MVP. Grants pin the current credential-value version.
+    /// When true, later secret versions stay authorized. Pinned grants match the issued version.
     pub(crate) follow_active: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Grant { record: Uuid, spec: GrantSpec, revoked: bool, version: u64, issuer_task: Uuid, admin_issued: bool }
 
+/// Bounds for privately generated secrets. Absent on the wire for policy-less requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GenerationPolicy {
+    pub(crate) length: u8,
+    pub(crate) symbols: bool,
+    pub(crate) require_classes: bool,
+}
+impl GenerationPolicy {
+    pub(crate) fn valid(self) -> bool { (16..=128).contains(&self.length) }
+}
+
 /// Caller input contains no owner, creator, origin mutation or authentication fields.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) enum Mutation {
     Create { kind: CredentialKind, values: SecretInput },
-    Generate { kind: CredentialKind, username: Option<String> },
+    Generate {
+        kind: CredentialKind,
+        username: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        policy: Option<GenerationPolicy>,
+    },
     Patch { record: Uuid, expected: u64, values: SecretInput },
     Delete { record: Uuid, expected: u64 },
     Share { record: Uuid, expected: u64, grant: GrantSpec },
@@ -203,6 +222,14 @@ pub(crate) struct Receipt {
     pub(crate) record: Uuid,
     pub(crate) revision: u64,
     pub(crate) grant: Option<Uuid>,
+}
+
+/// Nonsecret record view. `fields` contains only the requested metadata fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MetadataView {
+    pub(crate) revision: u64,
+    pub(crate) signup: SignupState,
+    pub(crate) fields: BTreeMap<Field, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -253,7 +280,7 @@ pub(crate) struct DeliveryReceipt { pub(crate) attempt: Uuid, pub(crate) status:
 #[serde(deny_unknown_fields)]
 struct RequestKey { owner: String, principal: String, task: Uuid, id: Uuid }
 #[derive(Clone, Copy, Serialize, Deserialize)]
-enum CachedKind { Create, Patch, Delete, Share, Revoke, ReportOutcome }
+enum CachedKind { Create, Patch, MetadataPatch, Delete, Share, Revoke, ReportOutcome }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Remembered { fingerprint: [u8; 32], result: Receipt, kind: CachedKind }
@@ -273,18 +300,73 @@ thread_local! {
     static GENERATION_FAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-fn generate_values(kind: CredentialKind, username: Option<String>) -> Result<SecretInput, Error> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut random = Zeroizing::new([0u8; 32]);
+const GENERATION_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const GENERATION_SYMBOLS: &[u8] = b"!@#$%^&*+=?";
+
+/// Rejection sampling: bytes at or above the largest multiple of `span` in `0..256` are discarded.
+fn generation_index(byte: u8, span: usize) -> Option<usize> {
+    if span == 0 || span > 256 { return None; }
+    let limit = (256 / span) * span;
+    let value = byte as usize;
+    (value < limit).then_some(value % span)
+}
+
+fn sample_secret(alphabet: &[u8], length: usize) -> Result<Zeroizing<String>, Error> {
+    let mut secret = Zeroizing::new(String::with_capacity(length));
+    let mut random = Zeroizing::new([0u8; 128]);
+    while secret.len() < length {
+        OsRng.try_fill_bytes(random.as_mut()).map_err(|_| Error::GenerationUnavailable)?;
+        for &byte in random.iter() {
+            if secret.len() == length { break; }
+            if let Some(index) = generation_index(byte, alphabet.len()) {
+                secret.push(alphabet[index] as char);
+            }
+        }
+    }
+    Ok(secret)
+}
+
+fn classes_present(secret: &str, symbols: bool) -> bool {
+    let (mut upper, mut lower, mut digit, mut symbol) = (false, false, false, !symbols);
+    for byte in secret.bytes() {
+        match byte {
+            b'A'..=b'Z' => upper = true,
+            b'a'..=b'z' => lower = true,
+            b'0'..=b'9' => digit = true,
+            _ if symbols && GENERATION_SYMBOLS.contains(&byte) => symbol = true,
+            _ => {}
+        }
+    }
+    upper && lower && digit && symbol
+}
+
+fn generate_secret(policy: Option<GenerationPolicy>) -> Result<Zeroizing<String>, Error> {
     #[cfg(test)]
     {
         GENERATION_DRAWS.with(|draws| draws.set(draws.get() + 1));
         if GENERATION_FAIL.with(|fail| fail.replace(false)) { return Err(Error::GenerationUnavailable); }
     }
-    OsRng.try_fill_bytes(random.as_mut()).map_err(|_| Error::GenerationUnavailable)?;
-    let mut secret = Zeroizing::new(String::with_capacity(32));
-    // A power-of-two alphabet gives uniform characters without modulo bias.
-    for byte in random.iter() { secret.push(ALPHABET[(byte & 63) as usize] as char); }
+    let Some(policy) = policy else {
+        let mut random = Zeroizing::new([0u8; 32]);
+        OsRng.try_fill_bytes(random.as_mut()).map_err(|_| Error::GenerationUnavailable)?;
+        let mut secret = Zeroizing::new(String::with_capacity(32));
+        // A power-of-two alphabet gives uniform characters without modulo bias.
+        for byte in random.iter() { secret.push(GENERATION_ALPHABET[(byte & 63) as usize] as char); }
+        return Ok(secret);
+    };
+    if !policy.valid() { return Err(Error::Invalid); }
+    let mut alphabet = GENERATION_ALPHABET.to_vec();
+    if policy.symbols { alphabet.extend_from_slice(GENERATION_SYMBOLS); }
+    // Whole-value retries keep required classes from pinning positions.
+    for _ in 0..128 {
+        let secret = sample_secret(&alphabet, policy.length as usize)?;
+        if !policy.require_classes || classes_present(&secret, policy.symbols) { return Ok(secret); }
+    }
+    Err(Error::GenerationUnavailable)
+}
+
+fn generate_values(kind: CredentialKind, username: Option<String>, policy: Option<GenerationPolicy>) -> Result<SecretInput, Error> {
+    let secret = generate_secret(policy)?;
     let mut values = BTreeMap::new();
     match kind {
         CredentialKind::Login => {
@@ -318,6 +400,12 @@ pub(crate) struct AuditEvent {
     pub(crate) record: Uuid,
     pub(crate) request: Option<Uuid>,
     pub(crate) action: AuditAction,
+    /// Zero when decoded from a snapshot written before this field existed.
+    #[serde(default)]
+    pub(crate) at: Time,
+    /// Empty when decoded from a snapshot written before this field existed.
+    #[serde(default)]
+    pub(crate) principal: String,
 }
 
 /// Private staging state. Only the durable owner is reachable by sibling modules.
@@ -348,17 +436,28 @@ impl Application {
             task.owner == admin.owner && task.workspace == admin.workspace)).cloned().collect())
     }
 
-    fn clock(&mut self, now: Time) -> Result<(), Error> {
-        if self.clock_frozen || self.last_time.is_some_and(|last| now < last) {
-            self.clock_frozen = true;
-            return Err(Error::ClockRecoveryRequired);
+    fn effective_time(&self, now: Time) -> Result<Time, Error> {
+        if self.clock_frozen { return Err(Error::ClockRecoveryRequired); }
+        match self.last_time {
+            Some(last) if now < last => {
+                if last.saturating_sub(now) <= CLOCK_SKEW_TOLERANCE { Ok(last) } else { Err(Error::ClockRecoveryRequired) }
+            }
+            _ => Ok(now),
         }
-        self.last_time = Some(now);
-        Ok(())
+    }
+
+    /// Effective time for expiry checks. Within-tolerance rollback does not move the high-water mark.
+    fn clock(&mut self, now: Time) -> Result<Time, Error> {
+        let effective = match self.effective_time(now) {
+            Ok(effective) => effective,
+            Err(error) => { self.clock_frozen = true; return Err(error); }
+        };
+        if self.last_time.is_none_or(|high| now > high) { self.last_time = Some(now); }
+        Ok(effective)
     }
 
     pub(crate) fn approve_task(&mut self, admin: &AuthenticatedContext, task: TaskApproval, now: Time) -> Result<(), Error> {
-        self.clock(now)?;
+        let now = self.clock(now)?;
         if !admin.admin || admin.owner != task.owner || admin.workspace != task.workspace { return Err(Error::Denied); }
         // Retained immutable tasks bind this dedicated vault even after revocation/deletion.
         if self.tasks.values().any(|retained| retained.owner != task.owner || retained.workspace != task.workspace) {
@@ -424,7 +523,8 @@ impl Application {
         { return false; }
         if r.created_by == ctx.principal && r.task == t.id { return true; }
         self.grants.values().any(|g| g.record == r.id && !g.revoked && now < g.spec.expires_at
-            && g.version == r.secret_version && !self.revoked_tasks.contains(&g.issuer_task)
+            && (if g.spec.follow_active { r.secret_version >= g.version } else { g.version == r.secret_version })
+            && !self.revoked_tasks.contains(&g.issuer_task)
             && self.tasks.get(&g.issuer_task).is_some_and(|issuer| now < issuer.expires_at)
             && g.spec.recipient == ctx.principal && g.spec.permissions.contains(&permission)
             && fields.is_subset(&g.spec.fields)
@@ -433,7 +533,8 @@ impl Application {
 
     fn authorize(&self, ctx: &AuthenticatedContext, t: &TaskApproval, op: &Mutation, now: Time, retry: bool) -> Result<(), Error> {
         use Permission::*;
-        if let Mutation::Generate { kind, username } = op {
+        if let Mutation::Generate { kind, username, policy } = op {
+            if policy.is_some_and(|policy| !policy.valid()) { return Err(Error::Invalid); }
             let fields = generation_fields(*kind, username.as_deref())?;
             if !t.permissions.contains(&SecretWrite) || !fields.is_subset(&t.fields) { return Err(Error::Denied); }
             return Ok(());
@@ -470,7 +571,7 @@ impl Application {
             }
             Mutation::Share { grant, .. } => {
                 if grant.fields.is_empty() || grant.permissions.is_empty() || grant.expires_at <= now
-                    || grant.recipient.is_empty() || grant.recipient.len() > 2048 || grant.follow_active
+                    || grant.recipient.is_empty() || grant.recipient.len() > 2048
                     || grant.permissions.contains(&AccessGrant) || !grant.fields.is_subset(&r.values.fields())
                     || grant.destinations.len() > 32 || grant.destinations.iter().any(|s| s.is_empty() || s.len() > 2048)
                     || (grant.permissions.contains(&SecretUse) && grant.destinations.is_empty())
@@ -511,7 +612,7 @@ impl Application {
 
     pub(crate) fn mutate(&mut self, ctx: &AuthenticatedContext, task: Uuid, request: Uuid,
                          op: Mutation, now: Time) -> Result<Receipt, Error> {
-        self.clock(now)?;
+        let now = self.clock(now)?;
         if request.is_nil() { return Err(Error::Invalid); }
         let t = self.task(ctx, task, now)?.clone();
         self.authorize(ctx, &t, &op, now, true)?;
@@ -529,15 +630,17 @@ impl Application {
         self.authorize(ctx, &t, &op, now, false)?;
         if self.requests.len() >= 10_000 { return Err(Error::Capacity); }
         let kind = match &op {
-            Mutation::Create { .. } | Mutation::Generate { .. } => CachedKind::Create, Mutation::Patch { .. } => CachedKind::Patch,
+            Mutation::Create { .. } | Mutation::Generate { .. } => CachedKind::Create,
+            Mutation::Patch { values, .. } if values.metadata_only() => CachedKind::MetadataPatch,
+            Mutation::Patch { .. } => CachedKind::Patch,
             Mutation::Delete { .. } => CachedKind::Delete, Mutation::Share { .. } => CachedKind::Share,
             Mutation::Revoke { .. } => CachedKind::Revoke, Mutation::ReportOutcome { .. } => CachedKind::ReportOutcome,
         };
         // Fingerprint and cache checks above must use the nonsecret Generate specification.
         let op = match op {
-            Mutation::Generate { kind, username } => {
+            Mutation::Generate { kind, username, policy } => {
                 if self.records.len() >= 10_000 { return Err(Error::Capacity); }
-                Mutation::Create { kind, values: generate_values(kind, username)? }
+                Mutation::Create { kind, values: generate_values(kind, username, policy)? }
             }
             other => other,
         };
@@ -554,10 +657,13 @@ impl Application {
                 Receipt { record: id, revision: 1, grant: None }
             }
             Mutation::Patch { record, values, .. } => {
+                let secret = !values.metadata_only();
                 let r = self.records.get_mut(&record).ok_or(Error::Denied)?;
-                if r.secret_version == u64::MAX { return Err(Error::Capacity); }
-                r.secret_version += 1;
-                r.signup = SignupState::Pending;
+                if secret {
+                    if r.secret_version == u64::MAX { return Err(Error::Capacity); }
+                    r.secret_version += 1;
+                    r.signup = SignupState::Pending;
+                }
                 r.values.0.extend(values.0);
                 r.revision += 1;
                 Receipt { record, revision: r.revision, grant: None }
@@ -593,7 +699,8 @@ impl Application {
             }
         };
         self.requests.insert(key, Remembered { fingerprint, result: receipt.clone(), kind });
-        self.audit(AuditEvent { task, record: receipt.record, request: Some(request), action: AuditAction::Mutation });
+        self.audit(AuditEvent { task, record: receipt.record, request: Some(request), action: AuditAction::Mutation,
+            at: now, principal: ctx.principal.clone() });
         Ok(receipt)
     }
 
@@ -612,18 +719,26 @@ impl Application {
 
     pub(crate) fn read_secret(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid,
                               fields: Fields, now: Time) -> Result<Disclosure, Error> {
-        self.clock(now)?;
+        let now = self.clock(now)?;
         let result = self.select(ctx, task, record, &fields, Permission::SecretRead, None, now)?;
-        self.audit(AuditEvent { task, record, request: None, action: AuditAction::SecretRead });
+        self.audit(AuditEvent { task, record, request: None, action: AuditAction::SecretRead,
+            at: now, principal: ctx.principal.clone() });
         Ok(Disclosure(result))
     }
 
     pub(crate) fn metadata(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid,
-                           fields: Fields, now: Time) -> Result<BTreeMap<Field, String>, Error> {
-        self.clock(now)?;
+                           fields: Fields, now: Time) -> Result<MetadataView, Error> {
+        let now = self.clock(now)?;
         let values = self.select(ctx, task, record, &fields, Permission::MetadataRead, None, now)?;
-        self.audit(AuditEvent { task, record, request: None, action: AuditAction::MetadataRead });
-        Ok(values.0.into_iter().map(|(f, v)| (f, v.to_string())).collect())
+        let record_state = self.record(ctx, record)?;
+        let view = MetadataView {
+            revision: record_state.revision,
+            signup: record_state.signup,
+            fields: values.0.into_iter().map(|(f, v)| (f, v.to_string())).collect(),
+        };
+        self.audit(AuditEvent { task, record, request: None, action: AuditAction::MetadataRead,
+            at: now, principal: ctx.principal.clone() });
+        Ok(view)
     }
 
     /// The callback is trusted integration, never a model-controlled destination or ordinary tool response.
@@ -633,11 +748,12 @@ impl Application {
     pub(crate) fn use_secret<F>(&mut self, ctx: &AuthenticatedContext, task: Uuid, record: Uuid,
                                 fields: Fields, destination: &str, now: Time, deliver: F) -> Result<DeliveryReceipt, Error>
     where F: FnOnce(&BTreeMap<Field, &str>) -> Result<DeliveryStatus, Error> {
-        self.clock(now)?;
+        let now = self.clock(now)?;
         let values = self.select(ctx, task, record, &fields, Permission::SecretUse, Some(destination), now)?;
         let private = values.0.iter().map(|(f, v)| (*f, v.as_str())).collect();
         let status = deliver(&private)?;
-        self.audit(AuditEvent { task, record, request: None, action: AuditAction::SecretUse });
+        self.audit(AuditEvent { task, record, request: None, action: AuditAction::SecretUse,
+            at: now, principal: ctx.principal.clone() });
         Ok(DeliveryReceipt { attempt: Uuid::new_v4(), status })
     }
 }

@@ -7,7 +7,7 @@ One vault owner holds the encrypted store. A trusted supervisor approves tasks, 
 ## Capabilities
 
 - Generate login passwords and API-key values inside the vault. Login generation takes a public username; generated secrets never appear in the response.
-- Share access with a named agent, limited by fields, permissions, destination IDs, and expiry. Grants pin the credential-value version.
+- Share access with a named agent, limited by fields, permissions, destination IDs, and expiry. A pinned grant matches one secret version. A `follow_active` grant stays valid for later secret versions. Metadata patches do not rotate that version. The MCP share schema still submits pinned grants.
 - Use credentials through a fixed HTTPS GET with Basic or Bearer authentication. The supervisor selects the endpoint, path, and optional CA certificate.
 - Read authorized metadata, patch metadata, revoke grants, delete records, and report task outcomes through MCP.
 - Import existing credentials and perform explicitly authorized secret reads through a separate human administration channel.
@@ -34,7 +34,7 @@ A record ID conveys no authority by itself. Agents cannot approve tasks, change 
 |------|---------|---------------|
 | `credman_generate` | Generate a login password or API-key value | Record ID and revision |
 | `credman_mutate` | Patch metadata, share, revoke, delete, or report an outcome | Record revision and optional grant ID |
-| `credman_metadata` | Read approved `Label`, `Username`, or `Notes` fields | Authorized metadata |
+| `credman_metadata` | Read approved `Label`, `Username`, or `Notes` fields | Revision, signup state, and those field values |
 | `credman_use` | Authenticate a configured HTTPS GET | Attempt ID and delivery status |
 
 Basic authentication requires exactly `Username` and `Password`; Bearer authentication requires exactly `ApiKey`. Agents select an approved destination ID, while the supervisor controls its URL and authentication scheme. Redirects and automatic HTTP retries are disabled. HTTP response bodies, headers, and curl diagnostics are discarded.

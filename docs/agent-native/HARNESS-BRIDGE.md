@@ -46,7 +46,7 @@ Keep session tokens outside configuration text, command arguments, environment v
 
 ## Use credentials
 
-The MCP frontend exposes `credman_generate`, `credman_mutate`, `credman_metadata`, and `credman_use`. Agent tool results contain references, authorized metadata, and delivery receipts. Secret values are available only to approved HTTPS consumers or explicitly authorized human reads through the private administration channel.
+The MCP frontend exposes `credman_generate`, `credman_mutate`, `credman_metadata`, and `credman_use`. Agent tool results contain references, authorized metadata, and delivery receipts. A metadata result includes the record revision and signup state with the approved nonsecret fields. Secret values are available only to approved HTTPS consumers or explicitly authorized human reads through the private administration channel.
 
 Configure destinations in the owner configuration before approving private use. Each destination specifies `id`, `service`, `origin`, `path`, `auth`, and optional `ca_file`. The task must approve the matching service, exact origin, and destination ID. Basic authentication requires `Username` and `Password`; Bearer authentication requires `ApiKey`.
 

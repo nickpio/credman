@@ -147,7 +147,7 @@ fn duplicate_dispatched_registrations_across_versions_fail_snapshot_validation()
     f.owner.use_secret(&agent("a"), f.ta, request(f.receipt.record, PrivateAction::Register), &mut || 3,
         |_| Ok(DeliveryStatus::Accepted)).unwrap();
     f.owner.mutate(&agent("a"), f.ta, Uuid::new_v4(), Mutation::Patch {
-        record: f.receipt.record, expected: 1, values: input(&[(Field::Notes, "synthetic metadata")]),
+        record: f.receipt.record, expected: 1, values: input(&[(Field::Password, "synthetic-password")]),
     }, 4).unwrap();
     let mut duplicate = f.owner.app.deliveries.values().next().unwrap().clone();
     duplicate.version = 2; duplicate.key.id = Uuid::new_v4();

@@ -2,9 +2,13 @@ use super::*;
 use super::tests::{admin, agent, approval, fields, setup};
 
 fn login(name: &str) -> Mutation {
-    Mutation::Generate { kind: CredentialKind::Login, username: Some(name.into()) }
+    Mutation::Generate { kind: CredentialKind::Login, username: Some(name.into()), policy: None }
 }
-fn api_key() -> Mutation { Mutation::Generate { kind: CredentialKind::ApiKey, username: None } }
+fn api_key() -> Mutation { Mutation::Generate { kind: CredentialKind::ApiKey, username: None, policy: None } }
+fn policy(length: u8, symbols: bool, require_classes: bool) -> Mutation {
+    Mutation::Generate { kind: CredentialKind::ApiKey, username: None,
+        policy: Some(GenerationPolicy { length, symbols, require_classes }) }
+}
 fn draws() -> usize { GENERATION_DRAWS.with(|draws| draws.get()) }
 
 #[test]
@@ -36,8 +40,10 @@ fn private_generation_formats_public_metadata_and_nonsecret_fingerprint() {
     }
     assert_eq!(draws() - before, 2);
     let receipt = app.mutate(&agent("a"), ta, Uuid::new_v4(), login("public-fixture-user"), 3).unwrap();
-    assert_eq!(app.metadata(&agent("a"), ta, receipt.record, fields(&[Field::Username]), 3)
-        .unwrap()[&Field::Username], "public-fixture-user");
+    let metadata = app.metadata(&agent("a"), ta, receipt.record, fields(&[Field::Username]), 3).unwrap();
+    assert_eq!(metadata.fields[&Field::Username], "public-fixture-user");
+    assert_eq!(metadata.revision, 1);
+    assert_eq!(metadata.signup, SignupState::Pending);
     assert_eq!(app.metadata(&agent("a"), ta, receipt.record, fields(&[Field::Password]), 3)
         .unwrap_err(), Error::Denied);
 }
@@ -46,9 +52,10 @@ fn private_generation_formats_public_metadata_and_nonsecret_fingerprint() {
 fn private_generation_invalid_specs_and_authority_never_draw_randomness() {
     let (mut app, ta, _, _) = setup();
     let before = draws();
-    for op in [Mutation::Generate { kind: CredentialKind::Login, username: None }, login(""), login(&"x".repeat(2049)),
-        Mutation::Generate { kind: CredentialKind::ApiKey, username: Some("public-user".into()) },
-        Mutation::Generate { kind: CredentialKind::ApiKey, username: Some(String::new()) }] {
+    for op in [Mutation::Generate { kind: CredentialKind::Login, username: None, policy: None }, login(""), login(&"x".repeat(2049)),
+        Mutation::Generate { kind: CredentialKind::ApiKey, username: Some("public-user".into()), policy: None },
+        Mutation::Generate { kind: CredentialKind::ApiKey, username: Some(String::new()), policy: None },
+        policy(15, false, false), policy(129, true, true)] {
         assert_eq!(app.mutate(&agent("a"), ta, Uuid::new_v4(), op, 3).unwrap_err(), Error::Invalid);
     }
     for ctx in [agent("b"), AuthenticatedContext::from_authenticated_peer("other".into(), "a".into(), "project".into()),
@@ -120,7 +127,10 @@ fn private_generation_expiry_clock_and_capacity_precede_randomness() {
     }
     assert_eq!(full_records.mutate(&agent("a"), ta, Uuid::new_v4(), api_key(), 3).unwrap_err(), Error::Capacity);
     assert_eq!(app.mutate(&agent("a"), ta, request, api_key(), 1000).unwrap_err(), Error::Denied);
-    assert_eq!(app.mutate(&agent("a"), ta, request, api_key(), 999).unwrap_err(), Error::ClockRecoveryRequired);
+    assert_eq!(app.mutate(&agent("a"), ta, request, api_key(), 1000 - CLOCK_SKEW_TOLERANCE).unwrap_err(), Error::Denied);
+    assert!(!app.clock_frozen);
+    assert_eq!(app.last_time, Some(1000));
+    assert_eq!(app.mutate(&agent("a"), ta, request, api_key(), 1000 - (CLOCK_SKEW_TOLERANCE + 1)).unwrap_err(), Error::ClockRecoveryRequired);
     assert_eq!(app.mutate(&agent("a"), ta, request, api_key(), 1001).unwrap_err(), Error::ClockRecoveryRequired);
     assert_eq!(draws(), before);
 }
@@ -135,4 +145,40 @@ fn private_generation_fallible_rng_does_not_leave_a_record_or_receipt() {
     assert_eq!((app.records.len(), app.requests.len(), app.audit.len()), counts);
     let receipt = app.mutate(&agent("a"), ta, request, api_key(), 3).unwrap();
     assert!(app.records.contains_key(&receipt.record));
+}
+
+#[test]
+fn generation_policy_bounds_classes_and_preserves_the_default_fingerprint() {
+    let encoded = serde_json::to_string(&api_key()).unwrap();
+    assert_eq!(encoded, r#"{"Generate":{"kind":"ApiKey","username":null}}"#);
+    assert_eq!(serde_json::to_string(&serde_json::from_str::<Mutation>(&encoded).unwrap()).unwrap(), encoded);
+    let mut counts = [0usize; 75];
+    for byte in 0..=255u8 {
+        if let Some(index) = super::generation_index(byte, 75) { counts[index] += 1; }
+    }
+    assert!(counts.iter().all(|count| *count == 3));
+    let (mut app, ta, _, _) = setup();
+    let before = draws();
+    for (length, symbols, require_classes) in [(16, false, false), (128, true, true), (24, true, false), (32, false, true)] {
+        let request = Uuid::new_v4();
+        let op = policy(length, symbols, require_classes);
+        let specification = serde_json::to_vec(&op).unwrap();
+        assert!(specification.windows(b"policy".len()).any(|part| part == b"policy"));
+        let receipt = app.mutate(&agent("a"), ta, request, op, 3).unwrap();
+        let secret = &app.records[&receipt.record].values.0[&Field::ApiKey];
+        assert_eq!(secret.len(), length as usize);
+        assert!(secret.bytes().all(|byte| super::GENERATION_ALPHABET.contains(&byte)
+            || (symbols && super::GENERATION_SYMBOLS.contains(&byte))));
+        if require_classes { assert!(super::classes_present(secret, symbols)); }
+        if !symbols { assert!(secret.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))); }
+        let key = RequestKey { owner: "user".into(), principal: "a".into(), task: ta, id: request };
+        assert_eq!(app.requests[&key].fingerprint, <[u8; 32]>::from(Sha256::digest(&specification)));
+        assert!(!serde_json::to_string(&receipt).unwrap().contains(secret.as_str()));
+    }
+    let request = Uuid::new_v4();
+    app.mutate(&agent("a"), ta, request, policy(16, false, true), 4).unwrap();
+    let drawn = draws();
+    assert_eq!(app.mutate(&agent("a"), ta, request, policy(17, false, true), 4).unwrap_err(), Error::ReplayConflict);
+    assert_eq!(draws(), drawn);
+    assert_eq!(draws() - before, 5);
 }

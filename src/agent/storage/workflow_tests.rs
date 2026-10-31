@@ -38,7 +38,7 @@ fn private_request_retry_after_restart_is_once_only_and_changed_input_conflicts(
     assert_eq!(owner.use_secret(&agent("a"), f.ta, changed, &mut || 4,
         |_| panic!("changed request dispatched")).unwrap_err(), Error::ReplayConflict);
     owner.mutate(&agent("a"), f.ta, Uuid::new_v4(), Mutation::Patch { record: req.record, expected: 1,
-        values: super::super::tests::input(&[(Field::Username, "rotated-synthetic-user")]) }, 4).unwrap();
+        values: super::super::tests::input(&[(Field::Password, "rotated-synthetic-password")]) }, 4).unwrap();
     assert_eq!(owner.use_secret(&agent("a"), f.ta, req, &mut || 4,
         |_| panic!("old-version request dispatched")).unwrap_err(), Error::Denied);
 }
@@ -76,7 +76,7 @@ fn unknown_registration_cannot_be_replayed_by_new_id_report_or_restart_and_login
 fn final_clock_rollback_cancels_dispatch_and_persists_clock_gate() {
     let mut f = fixture();
     let req = request(f.receipt.record, PrivateAction::Register);
-    let mut samples = [4, 3].into_iter();
+    let mut samples = [10, 10 - (super::super::CLOCK_SKEW_TOLERANCE + 1)].into_iter();
     assert_eq!(f.owner.use_secret(&agent("a"), f.ta, req, &mut || samples.next().unwrap(),
         |_| panic!("rollback dispatched")).unwrap_err(), Error::ClockRecoveryRequired);
     assert!(f.owner.app.clock_frozen);
@@ -119,6 +119,28 @@ fn adapter_error_cannot_claim_storage_nonpublication_after_dispatch() {
     let replay = owner.use_secret(&agent("a"), f.ta, req, &mut || 4,
         |_| panic!("failed external action was replayed")).unwrap();
     assert_eq!(replay.status, DeliveryStatus::Unknown);
+}
+
+#[test]
+fn tolerated_skew_preflight_expires_against_the_high_water_mark() {
+    let mut f = fixture();
+    let mut spec = grant();
+    spec.expires_at = 20;
+    f.owner.mutate(&agent("a"), f.ta, Uuid::new_v4(), Mutation::Share {
+        record: f.receipt.record, expected: 1, grant: spec,
+    }, 3).unwrap();
+    f.owner.read_secret(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), 20).unwrap();
+    let req = request(f.receipt.record, PrivateAction::Use);
+    let mut called = false;
+    let result = f.owner.use_secret(&agent("b"), f.tb, req, &mut || 20 - super::super::CLOCK_SKEW_TOLERANCE, |_| {
+        called = true;
+        Ok(DeliveryStatus::Accepted)
+    });
+    assert!(!called);
+    assert_eq!(result.unwrap_err(), Error::Denied);
+    assert!(!f.owner.app.clock_frozen);
+    assert_eq!(f.owner.app.last_time, Some(20));
+    assert!(f.owner.app.deliveries.is_empty());
 }
 
 #[test]

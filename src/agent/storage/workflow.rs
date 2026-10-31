@@ -11,7 +11,7 @@ impl DurableVault {
         let fingerprint: [u8; 32] = Sha256::digest(bytes.as_slice()).into();
         let attempt = Uuid::new_v4();
         let cached = self.apply(|app| {
-            app.clock(prepared_at)?;
+            let prepared_at = app.clock(prepared_at)?;
             if request.request.is_nil() { return Err(Error::Invalid); }
             app.select(ctx, task, request.record, &request.fields, Permission::SecretUse, Some(&request.destination), prepared_at)?;
             let record = app.record(ctx, request.record)?;
@@ -48,11 +48,11 @@ impl DurableVault {
         self.frozen = true;
         let handoff_at = clock();
         self.frozen = false;
-        let authorized = self.app.clock(handoff_at).and_then(|()|
+        let authorized = self.app.clock(handoff_at).and_then(|effective|
             self.app.select(ctx, task, request.record, &request.fields, Permission::SecretUse,
-                Some(&request.destination), handoff_at));
-        let values = match authorized {
-            Ok(values) => values,
+                Some(&request.destination), effective).map(|values| (values, effective)));
+        let (values, handoff_at) = match authorized {
+            Ok(authorized) => authorized,
             Err(error) => {
                 self.apply(|app| {
                     let d = app.deliveries.get_mut(&attempt).ok_or(Error::RecoveryRequired)?;
@@ -83,7 +83,8 @@ impl DurableVault {
                 (PrivateAction::Login, DeliveryStatus::Accepted) => record.signup = SignupState::VerifiedLogin,
                 _ => {},
             }
-            app.audit(AuditEvent { task, record: request.record, request: None, action: AuditAction::SecretUse });
+            app.audit(AuditEvent { task, record: request.record, request: None, action: AuditAction::SecretUse,
+                at: handoff_at, principal: ctx.principal.clone() });
             Ok(())
         }).map_err(|_| { self.frozen = true; Error::RecoveryRequired })?;
         // Adapter failure cannot make a claim about storage publication or invite replay.

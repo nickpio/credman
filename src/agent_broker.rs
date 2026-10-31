@@ -14,7 +14,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::agent::{AuthenticatedContext, CredentialKind, DurableVault, Error, Field, Fields,
-    Mutation, Permission, PrivateAction, PrivateUse, SecretInput, TaskApproval};
+    GenerationPolicy, Mutation, Permission, PrivateAction, PrivateUse, SecretInput, TaskApproval};
 use crate::agent_https::{Destination, PreparedHttps};
 use crate::agent_ipc::{fits_frame, strict_json, FramedChannel};
 use crate::agent_bridge::{Listener, Sessions};
@@ -45,7 +45,8 @@ struct PeerConfig { fd: RawFd, principal: String }
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum WorkRequest {
-    Generate { task: Uuid, request: Uuid, kind: CredentialKind, #[serde(default)] username: Option<String> },
+    Generate { task: Uuid, request: Uuid, kind: CredentialKind, #[serde(default)] username: Option<String>,
+        #[serde(default)] policy: Option<GenerationPolicy> },
     Mutate { task: Uuid, request: Uuid, mutation: Mutation },
     Metadata { task: Uuid, record: Uuid, fields: Fields },
     Use { task: Uuid, usage: PrivateUse },
@@ -65,6 +66,7 @@ impl WorkRequest {
                 _ => Ok(()),
             },
             Self::Metadata { fields, .. } if fields.iter().any(|field| matches!(field, Field::Password | Field::ApiKey)) => Err(Error::Denied),
+            Self::Generate { policy, .. } if policy.is_some_and(|policy| !policy.valid()) => Err(Error::Invalid),
             Self::Generate { kind, username, .. } => match (kind, username.as_deref()) {
                 (CredentialKind::Login, Some(name)) if !name.is_empty() && name.len() <= 2048 => Ok(()),
                 (CredentialKind::ApiKey, None) => Ok(()),
@@ -188,8 +190,8 @@ fn work(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: WorkReque
     destinations: &[Destination]) -> Result<Value, Error> {
     request.validate_agent()?;
     match request {
-        WorkRequest::Generate { task, request, kind, username } => {
-            let receipt = owner.mutate(ctx, task, request, Mutation::Generate { kind, username }, now())?;
+        WorkRequest::Generate { task, request, kind, username, policy } => {
+            let receipt = owner.mutate(ctx, task, request, Mutation::Generate { kind, username, policy }, now())?;
             Ok(json!({"ok": true, "receipt": receipt}))
         }
         WorkRequest::Mutate { task, request, mutation } => {
@@ -197,8 +199,8 @@ fn work(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: WorkReque
             Ok(json!({"ok": true, "receipt": receipt}))
         }
         WorkRequest::Metadata { task, record, fields } => {
-            let fields = owner.metadata(ctx, task, record, fields, now())?;
-            Ok(json!({"ok": true, "fields": fields}))
+            let metadata = owner.metadata(ctx, task, record, fields, now())?;
+            Ok(json!({"ok": true, "revision": metadata.revision, "signup": metadata.signup, "fields": metadata.fields}))
         }
         WorkRequest::Use { task, usage } => {
             let destination = destinations.iter().find(|destination| destination.id == usage.destination)
@@ -438,9 +440,16 @@ mod tests {
             json!({"op":"generate","request":id,"kind":"Login"}),
             json!({"op":"generate","request":id,"kind":"Login","username":""}),
             json!({"op":"generate","request":id,"kind":"ApiKey","username":"not-absent"}),
+            json!({"op":"generate","request":id,"kind":"ApiKey","policy":{"length":15,"symbols":false,"require_classes":false}}),
+            json!({"op":"generate","request":id,"kind":"ApiKey","policy":{"length":129,"symbols":true,"require_classes":true}}),
         ] {
             assert_eq!(request(value).validate_agent(), Err(Error::Invalid));
         }
+        let specified = request(json!({"op":"generate","request":id,"kind":"Login","username":"synthetic-user",
+            "policy":{"length":32,"symbols":true,"require_classes":true}}));
+        assert_eq!(specified.validate_agent(), Ok(()));
+        assert!(serde_json::from_value::<WorkRequest>(json!({"op":"generate","task":id,"request":id,"kind":"ApiKey",
+            "policy":{"length":32,"symbols":false,"require_classes":false,"extra":true}})).is_err());
     }
 
     #[test]

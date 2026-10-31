@@ -105,7 +105,7 @@ pub(super) fn validate(app: &Application) -> Result<(), Error> {
         let t = app.tasks.get(&g.issuer_task).ok_or(Error::InvalidStorage)?;
         let spec = &g.spec;
         ensure(!id.is_nil() && same_scope(t, r) && g.version > 0 && g.version <= r.secret_version
-            && (!r.deleted || g.revoked) && !spec.follow_active && !spec.fields.is_empty()
+            && (!r.deleted || g.revoked) && !spec.fields.is_empty()
             && !spec.permissions.is_empty() && !spec.permissions.contains(&Permission::AccessGrant)
             && !spec.recipient.is_empty() && spec.recipient.len() <= 2048
             && spec.fields.is_subset(&t.fields) && spec.permissions.is_subset(&t.permissions)
@@ -149,9 +149,11 @@ pub(super) fn validate(app: &Application) -> Result<(), Error> {
                 ensure(r.deleted && cached.result.grant.is_none())?;
                 deletes.insert(r.id);
             }
-            CachedKind::Patch => {
+            CachedKind::Patch | CachedKind::MetadataPatch => {
                 ensure(cached.result.grant.is_none())?;
-                patches.entry(r.id).or_default().insert(cached.result.revision);
+                if matches!(cached.kind, CachedKind::Patch) {
+                    patches.entry(r.id).or_default().insert(cached.result.revision);
+                }
             }
             CachedKind::ReportOutcome => ensure(cached.result.grant.is_none())?,
         }
@@ -194,6 +196,11 @@ pub(super) fn validate(app: &Application) -> Result<(), Error> {
         let t = app.tasks.get(&event.task).ok_or(Error::InvalidStorage)?;
         let r = app.records.get(&event.record).ok_or(Error::InvalidStorage)?;
         ensure(same_scope(t, r))?;
+        let legacy = event.at == 0 && event.principal.is_empty();
+        if !legacy {
+            ensure(event.principal == t.principal)?;
+            ensure(app.last_time.is_some_and(|last| (0..=last).contains(&event.at)))?;
+        }
         if let Some(request) = event.request {
             let key = RequestKey { owner: t.owner.clone(), principal: t.principal.clone(), task: t.id, id: request };
             ensure(app.requests.get(&key).is_some_and(|entry| entry.result.record == event.record))?;
@@ -250,6 +257,24 @@ mod tests {
                 _ => { v["requests"] = serde_json::json!([]); }
             }
             assert!(matches!(decode(&serde_json::to_vec(&v).unwrap()), Err(Error::InvalidStorage)));
+        }
+    }
+
+    #[test]
+    fn legacy_audit_events_decode_and_inconsistent_new_fields_fail() {
+        let bytes = encode(&fixture()).unwrap();
+        let mut legacy: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        for event in legacy["audit"].as_array_mut().unwrap() {
+            let event = event.as_object_mut().unwrap();
+            event.remove("at");
+            event.remove("principal");
+        }
+        let restored = decode(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert!(restored.audit.iter().all(|event| event.at == 0 && event.principal.is_empty()));
+        for (field, value) in [("principal", serde_json::Value::from("other")), ("at", serde_json::json!(1_000_000))] {
+            let mut damaged: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            damaged["audit"][0][field] = value;
+            assert!(matches!(decode(&serde_json::to_vec(&damaged).unwrap()), Err(Error::InvalidStorage)));
         }
     }
 }

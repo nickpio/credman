@@ -38,7 +38,9 @@ MCP initialization labels and tool arguments cannot choose principal or administ
 
 Unlocking creates no task authority. Each request is bound to the context established by its private channel, not an identity chosen in request JSON.
 
-Tasks restrict owner, principal, workspace, service, origin, fields, permissions, destinations, and expiry. Grants cannot widen the issuer's approved delegation. Grants pin secret-value versions, and cached requests recheck current authority before returning their retained result.
+Tasks restrict owner, principal, workspace, service, origin, fields, permissions, destinations, and expiry. Grants cannot widen the issuer's approved delegation. A pinned grant matches one secret version. A `follow_active` grant remains valid for that version and later rotations. Metadata-only patches do not rotate the secret version. Cached requests recheck current authority before returning their retained result.
+
+The owner records a trusted-clock high-water mark. A backward step of at most five seconds keeps that mark and does not freeze the vault; expiry checks use the mark. A larger backward step freezes access until human recovery.
 
 `SecretUse` sends authorized values to an approved fixed HTTPS destination and returns only delivery status and references. The destination receives the authorized secret by design. `SecretRead` does not authorize MCP disclosure: the MCP catalog has no read tool, and the owner rejects raw reads from workload peers. A trusted human can import or read secrets and issue scoped read grants through the private administration channel when the task permits it. Workload peers cannot issue read grants. Revocation blocks future vault access; it cannot recall a value already sent to a destination or rotate an upstream password.
 
@@ -62,7 +64,7 @@ Keep encrypted backups and their secrets separate. An administrative recovery co
 
 ## Remaining limits
 
-The worker launcher checks a reviewed sandbox path, not arbitrary host-capable agents. Memory, PID, CPU, and tmpfs quotas are not enforced per worker. The runtime does not protect against a compromised host account or kernel, a replaced binary, storage deletion or rollback, or copies made after authorized disclosure. Audit events are bounded records, not a tamper-evident log.
+The worker launcher checks a reviewed sandbox path, not arbitrary host-capable agents. Memory, PID, CPU, and tmpfs quotas are not enforced per worker. The runtime does not protect against a compromised host account or kernel, a replaced binary, storage deletion or rollback, or copies made after authorized disclosure. Audit events record principal and time, are bounded, and are not a tamper-evident log.
 
 Verification uses synthetic credentials, isolated homes, and private loopback HTTPS endpoints. Installed-client diagnostics establish connection and discovery only; they do not establish model-driven credential workflows or production-provider integration.
 

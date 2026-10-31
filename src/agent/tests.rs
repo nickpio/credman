@@ -122,7 +122,11 @@ fn explicit_read_and_metadata_are_field_scoped_and_debug_is_redacted() {
     let disclosed = app.read_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), 4).unwrap();
     assert_eq!(disclosed.expose()[&Field::Password], "FAKE-canary-password");
     assert_eq!(format!("{disclosed:?}"), "Disclosure([REDACTED])");
-    assert_eq!(app.metadata(&agent("b"), tb, r.record, fields(&[Field::Username]), 4).unwrap()[&Field::Username], "fixture-user");
+    let metadata = app.metadata(&agent("b"), tb, r.record, fields(&[Field::Username]), 4).unwrap();
+    assert_eq!(metadata.fields[&Field::Username], "fixture-user");
+    assert_eq!(metadata.revision, 2);
+    assert_eq!(metadata.signup, SignupState::Pending);
+    assert!(!format!("{metadata:?}").contains("FAKE-canary"));
     assert_eq!(app.metadata(&agent("b"), tb, r.record, fields(&[Field::Password]), 4).unwrap_err(), Error::Denied);
     assert_eq!(app.read_secret(&agent("b"), tb, r.record, fields(&[Field::Notes]), 4).unwrap_err(), Error::Denied);
 }
@@ -260,10 +264,29 @@ fn ownership_workspace_and_admin_approval_do_not_come_from_agent_input() {
 fn expiry_and_clock_rollback_fail_closed_even_after_time_catches_up() {
     let (mut app, ta, _, r) = setup();
     assert_eq!(app.read_secret(&agent("a"), ta, r.record, fields(&[Field::Password]), 1000).unwrap_err(), Error::Denied);
-    let (mut app, ta, _, r) = setup();
+    let (mut app, ta, tb, r) = setup();
+    share(&mut app, ta, r.record, grant());
     app.read_secret(&agent("a"), ta, r.record, fields(&[Field::Password]), 20).unwrap();
-    assert_eq!(app.read_secret(&agent("a"), ta, r.record, fields(&[Field::Password]), 19).unwrap_err(), Error::ClockRecoveryRequired);
+    app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 20 - CLOCK_SKEW_TOLERANCE,
+        |_| Ok(DeliveryStatus::Accepted)).unwrap();
+    assert_eq!(app.last_time, Some(20));
+    assert!(!app.clock_frozen);
+    assert_eq!(app.read_secret(&agent("a"), ta, r.record, fields(&[Field::Password]), 20 - (CLOCK_SKEW_TOLERANCE + 1)).unwrap_err(), Error::ClockRecoveryRequired);
+    assert!(app.clock_frozen);
     assert_eq!(app.read_secret(&agent("a"), ta, r.record, fields(&[Field::Password]), 21).unwrap_err(), Error::ClockRecoveryRequired);
+}
+
+#[test]
+fn tolerated_clock_skew_uses_the_high_water_mark_for_expiry() {
+    let (mut app, ta, tb, r) = setup();
+    let mut spec = grant();
+    spec.expires_at = 30;
+    app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Share { record: r.record, expected: 1, grant: spec }, 3).unwrap();
+    app.read_secret(&agent("a"), ta, r.record, fields(&[Field::Password]), 30).unwrap();
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service",
+        30 - CLOCK_SKEW_TOLERANCE, |_| panic!("effective time must expire the grant")).unwrap_err(), Error::Denied);
+    assert!(!app.clock_frozen);
+    assert_eq!(app.last_time, Some(30));
 }
 
 #[test]
@@ -302,7 +325,8 @@ fn audit_and_error_output_have_no_credential_content() {
     app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 4,
         |_| Ok(DeliveryStatus::Unknown)).unwrap();
     let events = app.audit_events(&admin()).unwrap();
-    assert!(events.iter().any(|e| e.action == AuditAction::SecretUse));
+    assert!(events.iter().any(|e| e.action == AuditAction::SecretUse && e.at == 4 && e.principal == "b"));
+    assert!(events.iter().any(|e| e.action == AuditAction::Mutation && e.at > 0 && e.principal == "a"));
     let encoded = serde_json::to_string(&events).unwrap();
     let debug = format!("{events:?}");
     for output in [encoded, debug] {
@@ -339,19 +363,71 @@ fn share_revision_and_invalid_empty_requests_preserve_state() {
 }
 
 #[test]
-fn username_patch_invalidates_entire_pinned_grant_and_follow_active_is_rejected() {
+fn metadata_patch_preserves_secret_version_signup_and_pinned_use() {
     let (mut app, ta, tb, r) = setup();
-    let mut following = grant(); following.follow_active = true;
+    app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::ReportOutcome {
+        record: r.record, expected: 1, state: SignupState::Unknown,
+    }, 3).unwrap();
+    let mut spec = grant();
+    spec.permissions.insert(Permission::MetadataRead);
+    app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Share { record: r.record, expected: 2, grant: spec }, 4).unwrap();
+    let patched = app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Patch {
+        record: r.record, expected: 3, values: input(&[(Field::Label, "renamed-synthetic")]),
+    }, 5).unwrap();
+    assert_eq!(patched.revision, 4);
+    let stored = &app.records[&r.record];
+    assert_eq!(stored.secret_version, 1);
+    assert_eq!(stored.signup, SignupState::Unknown);
+    assert!(matches!(app.requests.values().find(|cached| cached.result.revision == 4).unwrap().kind, CachedKind::MetadataPatch));
+    app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 6,
+        |values| { assert_eq!(values[&Field::Password], "FAKE-canary-password"); Ok(DeliveryStatus::Accepted) }).unwrap();
+    let metadata = app.metadata(&agent("b"), tb, r.record, fields(&[Field::Username]), 6).unwrap();
+    assert_eq!(metadata.fields[&Field::Username], "fixture-user");
+    assert_eq!(metadata.revision, 4);
+    assert_eq!(metadata.signup, SignupState::Unknown);
+    assert!(!format!("{metadata:?}").contains("FAKE-canary"));
+    app.generation = 1;
+    super::snapshot::encode(&app).unwrap();
+    let secret = app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Patch {
+        record: r.record, expected: 4, values: input(&[(Field::Password, "rotated-fake-password"), (Field::Notes, "rotated-note")]),
+    }, 7).unwrap();
+    assert_eq!(secret.revision, 5);
+    assert_eq!(app.records[&r.record].secret_version, 2);
+    assert_eq!(app.records[&r.record].signup, SignupState::Pending);
+    assert!(matches!(app.requests.values().find(|cached| cached.result.revision == 5).unwrap().kind, CachedKind::Patch));
+    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 8,
+        |_| panic!("secret patch must invalidate the pinned grant")).unwrap_err(), Error::Denied);
+    assert_eq!(app.metadata(&agent("b"), tb, r.record, fields(&[Field::Username]), 8).unwrap_err(), Error::Denied);
+    super::snapshot::encode(&app).unwrap();
+}
+
+#[test]
+fn follow_active_grant_survives_secret_rotation_within_share_bounds() {
+    let (mut app, ta, tb, r) = setup();
+    let mut widened = grant();
+    widened.follow_active = true;
+    widened.recipient = "other".into();
     assert_eq!(app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Share {
-        record: r.record, expected: 1, grant: following,
-    }, 3).unwrap_err(), Error::Invalid);
-    share(&mut app, ta, r.record, grant());
+        record: r.record, expected: 1, grant: widened,
+    }, 3).unwrap_err(), Error::Denied);
+    let mut following = grant();
+    following.follow_active = true;
+    following.permissions.insert(Permission::MetadataRead);
+    app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Share { record: r.record, expected: 1, grant: following }, 3).unwrap();
     app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Patch {
-        record: r.record, expected: 2, values: input(&[(Field::Username, "changed-fixture-user")]),
+        record: r.record, expected: 2, values: input(&[(Field::Password, "rotated-fake-password")]),
     }, 4).unwrap();
     assert_eq!(app.records[&r.record].secret_version, 2);
-    assert_eq!(app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 5,
-        |_| panic!("username rotation must invalidate the whole grant")).unwrap_err(), Error::Denied);
+    assert!(app.grants.values().any(|g| g.spec.follow_active && g.version == 1));
+    app.use_secret(&agent("b"), tb, r.record, fields(&[Field::Password]), "test-service", 5, |values| {
+        assert_eq!(values[&Field::Password], "rotated-fake-password");
+        Ok(DeliveryStatus::Accepted)
+    }).unwrap();
+    let metadata = app.metadata(&agent("b"), tb, r.record, fields(&[Field::Username]), 5).unwrap();
+    assert_eq!(metadata.revision, 3);
+    assert_eq!(metadata.signup, SignupState::Pending);
+    app.generation = 1;
+    super::snapshot::encode(&app).unwrap();
 }
 
 #[test]
@@ -377,7 +453,7 @@ fn write_retry_is_denied_after_its_own_pinned_version_is_replaced() {
     let mut spec = grant(); spec.permissions = permissions(&[Permission::SecretWrite]);
     app.mutate(&admin(), th, Uuid::new_v4(), Mutation::Share { record: r.record, expected: 1, grant: spec }, 3).unwrap();
     let request = Uuid::new_v4();
-    let op = Mutation::Patch { record: r.record, expected: 2, values: input(&[(Field::Username, "new-synthetic-user")]) };
+    let op = Mutation::Patch { record: r.record, expected: 2, values: input(&[(Field::Password, "new-synthetic-password")]) };
     app.mutate(&agent("b"), tb, request, op.clone(), 4).unwrap();
     assert_eq!(app.mutate(&agent("b"), tb, request, op, 4).unwrap_err(), Error::Denied);
 }
