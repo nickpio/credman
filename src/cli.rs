@@ -1,7 +1,41 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
 use clap::{Parser, Subcommand};
+
+use crate::agent::Error;
+
+pub(crate) struct StartupFailure {
+    command: &'static str,
+    error: Error,
+}
+
+impl StartupFailure {
+    pub(crate) fn report(&self) -> String {
+        let (command, error) = (self.command, self.error);
+        format!("credman {command}: {error}")
+    }
+    /// Stable process statuses. 0 is success. The command parser uses its own status for usage errors.
+    pub(crate) fn code(&self) -> i32 { exit_code(self.error) }
+}
+
+fn exit_code(error: Error) -> i32 {
+    match error {
+        Error::Denied => 10,
+        Error::Invalid => 11,
+        Error::Conflict => 12,
+        Error::ReplayConflict => 13,
+        Error::ClockRecoveryRequired => 14,
+        Error::Capacity => 15,
+        Error::InteractionRequired => 16,
+        Error::GenerationUnavailable => 17,
+        Error::NotPublished => 18,
+        Error::RecoveryRequired => 19,
+        Error::InvalidStorage => 20,
+        Error::InUse => 21,
+    }
+}
+
+fn fail(command: &'static str, error: Error) -> StartupFailure { StartupFailure { command, error } }
 
 #[derive(Parser, Debug)]
 #[command(name = "credman", about = "Agent-native credential vault with scoped sharing and private HTTPS use")]
@@ -71,7 +105,7 @@ enum AdminCommands {
     Recover,
 }
 
-pub(crate) fn run() -> Result<()> {
+pub(crate) fn run() -> Result<(), StartupFailure> {
     match Cli::parse().command {
         Commands::Admin { directory, seed_fd, identity_fd, operation } => {
             let operation = match operation {
@@ -82,14 +116,13 @@ pub(crate) fn run() -> Result<()> {
                 AdminCommands::Recover => crate::agent_admin::Operation::Recover,
             };
             crate::agent_admin::run(crate::agent_admin::Options { directory, seed_fd, identity_fd, operation })
-                .map_err(|_| anyhow::anyhow!("administration refused"))
+                .map_err(|error| fail("admin", error))
         }
         Commands::Serve { directory, seed_fd, config_fd, admin_fd, create, bridge_socket } => {
             let options = crate::agent_broker::RunOptions { directory, seed_fd, config_fd, admin_fd, create, bridge_socket };
-            crate::agent_broker::run(options).map_err(|_| anyhow::anyhow!("broker refused"))
+            crate::agent_broker::run(options).map_err(|error| fail("serve", error))
         }
-        Commands::Mcp { session_file } => crate::agent_mcp::run(&session_file)
-            .map_err(|_| anyhow::anyhow!("MCP refused")),
+        Commands::Mcp { session_file } => crate::agent_mcp::run(&session_file).map_err(|error| fail("mcp", error)),
     }
 }
 
@@ -125,5 +158,36 @@ mod tests {
         }
         assert!(Cli::try_parse_from(["credman", "admin", "--directory", "synthetic", "--seed-fd", "3",
             "--identity-fd", "4", "unsupported"]).is_err());
+    }
+
+    #[test]
+    fn failures_print_the_error_kind_and_a_distinct_exit_code() {
+        use std::collections::BTreeSet;
+        let samples = [
+            (Error::Denied, 10, "access denied"),
+            (Error::Invalid, 11, "invalid request"),
+            (Error::Conflict, 12, "revision conflict"),
+            (Error::ReplayConflict, 13, "request identifier reused with different input"),
+            (Error::ClockRecoveryRequired, 14, "trusted clock recovery required"),
+            (Error::Capacity, 15, "capacity reached"),
+            (Error::InteractionRequired, 16, "private delivery unavailable"),
+            (Error::GenerationUnavailable, 17, "private credential generation unavailable"),
+            (Error::NotPublished, 18, "storage publication did not occur"),
+            (Error::RecoveryRequired, 19, "validated storage recovery required"),
+            (Error::InvalidStorage, 20, "invalid encrypted agent vault"),
+            (Error::InUse, 21, "agent vault is in use"),
+        ];
+        let mut codes = BTreeSet::new();
+        for (error, code, text) in samples {
+            let failure = fail("serve", error);
+            assert_eq!(failure.report(), format!("credman serve: {text}"));
+            assert_eq!(failure.code(), code);
+            assert!(codes.insert(code));
+            assert!(!failure.report().contains('/') && !failure.report().contains("seed"));
+        }
+        assert_eq!(fail("mcp", Error::Invalid).report(), "credman mcp: invalid request");
+        assert_eq!(fail("admin", Error::RecoveryRequired).report(), "credman admin: validated storage recovery required");
+        assert_eq!(fail("serve", Error::RecoveryRequired).report(), "credman serve: validated storage recovery required");
+        assert_eq!(codes.len(), samples.len());
     }
 }

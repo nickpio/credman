@@ -9,6 +9,9 @@ pub(crate) use storage::DurableVault;
 #[cfg(target_os = "linux")]
 pub(crate) use storage::BackupSecret;
 
+mod admin_view;
+pub(crate) use admin_view::bounded_page;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 

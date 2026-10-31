@@ -89,7 +89,8 @@ class Owner:
         if registry is not None:
             registry.append(self)
         try:
-            if framed_call(self.admin, {'op': 'status'}) != {'ok': True}:
+            ready = framed_call(self.admin, {'op': 'status'})
+            if ready.get('ok') is not True or ready.get('frozen') is not False or ready.get('clock_frozen') is not False:
                 raise RuntimeError('Native owner did not become ready')
         except Exception:
             self.close()
