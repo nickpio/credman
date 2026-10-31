@@ -14,7 +14,7 @@ fn initial_evidence() -> (TempDir, String) {
     let salt = crypto::random_salt(); let kdf = KdfParams::current();
     let key = crypto::derive_key(&seed, &salt, &kdf).unwrap();
     let mut store = Store { dir: directory, _lock: lock, key, salt, kdf, current_image: None,
-        blocked: false, fault: Some(FaultPoint::AfterIntent) };
+        blocked: false, persisted_last_time: None, persisted_frozen: false, fault: Some(FaultPoint::AfterIntent) };
     let empty = Application { generation: 1, ..Application::default() };
     assert_eq!(store.publish(&empty), Publication::Unknown);
     assert!(!dir.path().join(STATE).exists() && dir.path().join(PENDING).exists());

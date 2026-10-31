@@ -12,7 +12,7 @@ Host-capable agents running under the human's Unix UID are not isolated principa
 
 ## Encryption and private resources
 
-The shared crypto implementation uses Argon2id, a random 16-byte salt, a 256-bit key, and AES-256-GCM with a fresh 12-byte nonce for each encrypted image. Header values and lengths are bounded before expensive processing. Backup envelopes authenticate their version, secret kind, KDF parameters, and salt inside encrypted plaintext.
+The shared crypto implementation uses Argon2id, a random 16-byte salt, a 256-bit key, and AES-256-GCM with a fresh 12-byte nonce for each encrypted image. Header values and lengths are bounded before expensive processing. Header version 3 binds the magic, version, KDF parameters, and salt as AES-256-GCM associated data. Version 2 store images and version 2 backups still decrypt, and the next publication rewrites them as version 3. A header must request at least 19 MiB of Argon2id memory; new images use 64 MiB, three iterations, and one lane. Backup envelopes also authenticate their version, secret kind, KDF parameters, and salt inside the ciphertext.
 
 The seed and supervisor configuration enter through distinct inherited descriptors above stdin, stdout, and stderr. Workload and administration sockets cannot alias. Transferred descriptors are close-on-exec, and unlisted descriptors are closed. Unlock material stays outside command arguments and environment variables.
 
@@ -24,7 +24,7 @@ A store uses an explicit absolute directory, owned by the effective Unix user wi
 
 The agent-store files include `state.v2`, `owner.lock`, and retained publication or recovery evidence such as `pending.v2` and `recovery.v2`. An exclusive advisory lock is held for the complete owner session. Do not replace or delete lock or evidence files to bypass access checks.
 
-Publication uses unique private temporary files, file sync, atomic publication, and directory sync. A definite prepublication failure differs from an ambiguous publication result. Ambiguity freezes access for explicit human recovery instead of reusing stale in-memory authority. Filesystem guarantees remain platform-dependent; this is local-filesystem behavior, not a power-loss or network-filesystem proof.
+Publication uses unique private temporary files, file sync, atomic publication, and directory sync. A definite prepublication failure differs from an ambiguous publication result. Ambiguity freezes access for explicit human recovery instead of reusing stale in-memory authority. A change that only advances the clock high-water by less than 60 seconds stays in memory. `clock_frozen` and every other state change are published immediately. After a restart, rollback detection of that high-water is coarse by up to 60 seconds. The running owner still rejects a clock step behind its in-memory high-water. Filesystem guarantees remain platform-dependent; this is local-filesystem behavior, not a power-loss or network-filesystem proof.
 
 ## Client attachment and MCP identity
 
@@ -38,7 +38,7 @@ MCP initialization labels and tool arguments cannot choose principal or administ
 
 Unlocking creates no task authority. Each request is bound to the context established by its private channel, not an identity chosen in request JSON.
 
-Tasks restrict owner, principal, workspace, service, origin, fields, permissions, destinations, and expiry. Grants cannot widen the issuer's approved delegation. Grants pin secret-value versions, and cached requests recheck current authority before returning their retained result.
+Tasks restrict owner, principal, workspace, service, origin, fields, permissions, destinations, and expiry. Grants cannot widen the issuer's approved delegation. Grants pin secret-value versions, and cached requests recheck current authority before returning their retained result. Request receipts and completed delivery attempts stay idempotent for 24 hours. Inside that window a repeated request ID returns the cached result only after current authorization succeeds. Once the receipt is compacted, the same ID is unknown: authorization is checked again, and a still-authorized create or use performs a new mutation or delivery. Registration evidence survives compaction, so a pruned registration does not dispatch again. Schema 2 receipts have no timestamp and are already outside the window. Collections are compacted as they approach 10,000 entries. The per-record baseline accounts for revisions and secret versions whose receipts were removed, and snapshot validation still requires that account.
 
 `SecretUse` sends authorized values to an approved fixed HTTPS destination and returns only delivery status and references. The destination receives the authorized secret by design. `SecretRead` does not authorize MCP disclosure: the MCP catalog has no read tool, and the owner rejects raw reads from workload peers. A trusted human can import or read secrets and issue scoped read grants through the private administration channel when the task permits it. Workload peers cannot issue read grants. Revocation blocks future vault access; it cannot recall a value already sent to a destination or rotate an upstream password.
 
@@ -57,6 +57,8 @@ Offline backup writes only to a validated, empty private regular file or private
 Encrypted backups support a seed or a separate passphrase. The destination store seed can differ from the backup secret. Restore validates the entire backup before publication, refuses an existing destination image, revokes previous tasks and grants, and requires fresh approval.
 
 Explicit recovery requires human context, matching scope, the seed, and valid retained encrypted evidence. Recovery revokes authority and resolves unfinished delivery outcomes conservatively. Tests with crafted journals and injected publication failures do not reproduce arbitrary disk failure or power loss.
+
+`credman admin ... rekey --new-seed-fd K` validates a new 12-word mnemonic, derives a new key with a fresh salt, and publishes through the same intent gate. The snapshot records the SHA-256 of the previous ciphertext. After an interrupted rekey, recover with the new seed. The previous seed cannot open the replacement image.
 
 Keep encrypted backups and their secrets separate. An administrative recovery command does not recover a lost seed or authenticate the human who supplied JSON identity labels. Those responsibilities remain with the trusted integration.
 

@@ -11,8 +11,8 @@ One vault owner holds the encrypted store. A trusted supervisor approves tasks, 
 - Use credentials through a fixed HTTPS GET with Basic or Bearer authentication. The supervisor selects the endpoint, path, and optional CA certificate.
 - Read authorized metadata, patch metadata, revoke grants, delete records, and report task outcomes through MCP.
 - Import existing credentials and perform explicitly authorized secret reads through a separate human administration channel.
-- Create encrypted backups, restore into a fresh store, and recover from ambiguous storage publication with human authorization.
-- Persist encrypted records, approvals, grants, request receipts, delivery attempts, and bounded audit events together. Revision checks prevent stale updates, and request IDs support retries without repeating completed work.
+- Create encrypted backups, restore into a fresh store, recover from ambiguous storage publication, and re-encrypt the store under a new seed with human authorization.
+- Persist encrypted records, approvals, grants, request receipts, delivery attempts, and bounded audit events together. Revision checks prevent stale updates. A request ID repeats completed work for 24 hours; after that window the same ID is a new operation and current authorization still applies. History outside the window is compacted so the 10,000-entry collections can keep accepting work.
 
 Credential generation creates vault records. It does not create remote accounts or issue provider credentials. A generated API-key value must be provisioned with its intended service separately.
 
@@ -56,7 +56,7 @@ The executable has three commands:
 |---------|----------------|
 | `serve` | Own the unlocked store and handle supervisor and agent requests |
 | `mcp` | Authenticate a session and expose the four tools over stdio |
-| `admin` | Perform offline encrypted backup, restore, or recovery |
+| `admin` | Perform offline encrypted backup, restore, recovery, or seed rekey |
 
 ## Connect agents
 
@@ -98,7 +98,7 @@ Executable acceptance checks exercise real MCP subprocesses against one durable 
 
 ## Security boundaries and limits
 
-Credman encrypts persisted state with Argon2id-derived keys and AES-256-GCM. It uses private filesystem resources, one-use session authentication, task approvals, bounded delegation, strict request decoding, and authorization checks immediately before private delivery.
+Credman encrypts persisted state with Argon2id-derived keys and AES-256-GCM. New store and backup images bind the header as associated data and accept only headers that request at least 19 MiB of Argon2id memory. It uses private filesystem resources, one-use session authentication, task approvals, bounded delegation, strict request decoding, and authorization checks immediately before private delivery. A clock-only advance under 60 seconds stays in memory until a later publication. Replacing the seed publishes a fresh salt through the same atomic intent gate.
 
 The supervisor, host account, kernel, executable, and configured HTTPS consumer are trusted. Host-capable agents under the same Unix UID can steal readable session files or inspect processes. Session identity does not provide OS isolation. An approved consumer receives the credential by design, and revocation cannot recall a delivered value or rotate a remote password.
 

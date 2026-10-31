@@ -241,3 +241,146 @@ fn final_handoff_resamples_expiry_after_intent_publication() {
     assert!(!called, "expired task must not dispatch after slow publication");
     assert_eq!(result.unwrap_err(), Error::Denied);
 }
+
+#[test]
+fn clock_only_updates_skip_publication_until_the_persist_interval() {
+    let mut f = fixture();
+    let before = fs::read(f.dir.path().join(STATE)).unwrap();
+    let persisted = f.owner.app.last_time.unwrap();
+    assert_eq!(f.owner.read_secret(&agent("a"), f.ta, Uuid::nil(), fields(&[Field::Password]), persisted + 1).unwrap_err(), Error::Denied);
+    assert_eq!(f.owner.app.last_time, Some(persisted + 1));
+    assert_eq!(fs::read(f.dir.path().join(STATE)).unwrap(), before);
+    drop(f.owner);
+    let mut owner = DurableVault::open(f.dir.path(), &f.seed).unwrap();
+    assert_eq!(owner.app.last_time, Some(persisted));
+    let due = persisted + CLOCK_PERSIST_INTERVAL;
+    assert_eq!(owner.read_secret(&agent("a"), f.ta, Uuid::nil(), fields(&[Field::Password]), due).unwrap_err(), Error::Denied);
+    drop(owner);
+    let owner = DurableVault::open(f.dir.path(), &f.seed).unwrap();
+    assert_eq!(owner.app.last_time, Some(due));
+}
+
+#[test]
+fn clock_freeze_publishes_immediately() {
+    let mut f = fixture();
+    let persisted = f.owner.app.last_time.unwrap();
+    assert_eq!(f.owner.read_secret(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), persisted - 1).unwrap_err(),
+        Error::ClockRecoveryRequired);
+    drop(f.owner);
+    let mut owner = DurableVault::open(f.dir.path(), &f.seed).unwrap();
+    assert!(owner.app.clock_frozen);
+    assert_eq!(owner.read_secret(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), persisted).unwrap_err(),
+        Error::ClockRecoveryRequired);
+}
+
+#[test]
+fn version_2_header_opens_and_the_next_write_uses_associated_data() {
+    let f = fixture();
+    let plaintext = snapshot::encode(&f.owner.app).unwrap();
+    let legacy = seal_version(&plaintext, &f.owner.store.key, &f.owner.store.salt, f.owner.store.kdf, HEADER_V2).unwrap();
+    assert_eq!(u32::from_be_bytes(legacy[8..12].try_into().unwrap()), HEADER_V2);
+    let _ = unseal(&legacy, &f.seed).unwrap();
+    let mut low_memory = legacy.clone();
+    low_memory[12..16].copy_from_slice(&(8u32 * 1024).to_be_bytes());
+    assert!(unseal(&low_memory, &f.seed).is_err());
+    drop(f.owner);
+    fs::write(f.dir.path().join(STATE), &legacy).unwrap();
+    let mut owner = DurableVault::open(f.dir.path(), &f.seed).unwrap();
+    owner.mutate(&agent("a"), f.ta, Uuid::new_v4(), Mutation::Patch {
+        record: f.receipt.record, expected: 1, values: input(&[(Field::Username, "republished-user")]),
+    }, 3).unwrap();
+    drop(owner);
+    let image = fs::read(f.dir.path().join(STATE)).unwrap();
+    assert_eq!(u32::from_be_bytes(image[8..12].try_into().unwrap()), HEADER_V3);
+    let mut flipped = image.clone();
+    flipped[24] ^= 0x5a;
+    assert!(unseal(&flipped, &f.seed).is_err());
+    assert!(unseal(&image, &f.seed).is_ok());
+}
+
+#[test]
+fn aged_receipts_compact_during_commit_and_later_work_survives_restart() {
+    let mut f = fixture();
+    let now = f.owner.app.last_time.unwrap();
+    for cached in f.owner.app.requests.values_mut() { cached.at = Some(now - snapshot::RETRY_WINDOW); }
+    assert_eq!(f.owner.read_secret(&agent("a"), f.ta, Uuid::nil(), fields(&[Field::Password]), now).unwrap_err(), Error::Denied);
+    assert!(f.owner.app.baselines.contains_key(&f.receipt.record));
+    assert!(f.owner.app.requests.values().all(|cached| cached.result.record != f.receipt.record));
+    let created = f.owner.mutate(&agent("a"), f.ta, Uuid::new_v4(), Mutation::Create {
+        kind: CredentialKind::Login, values: input(&[(Field::Username, "after-compact"), (Field::Password, "after-compact-secret")]),
+    }, now).unwrap();
+    drop(f.owner);
+    let mut owner = DurableVault::open(f.dir.path(), &f.seed).unwrap();
+    assert!(owner.app.records.contains_key(&created.record));
+    assert!(owner.app.baselines.contains_key(&f.receipt.record));
+    assert_eq!(owner.read_secret(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), now).unwrap().expose()[&Field::Password],
+        "FAKE-canary-password");
+}
+
+#[test]
+fn pruned_delivery_rechecks_authority_and_registration_stays_sealed() {
+    let mut f = fixture();
+    let req = PrivateUse { request: Uuid::new_v4(), record: f.receipt.record, fields: fields(&[Field::Password]),
+        destination: "test-service".into(), action: PrivateAction::Use };
+    f.owner.use_secret(&agent("a"), f.ta, req.clone(), &mut || 3, |_| Ok(DeliveryStatus::Accepted)).unwrap();
+    f.owner.revoke_task(&admin(), f.ta, 4).unwrap();
+    for delivery in f.owner.app.deliveries.values_mut() { delivery.at = Some(3 - snapshot::RETRY_WINDOW); }
+    let mut called = false;
+    assert_eq!(f.owner.use_secret(&agent("a"), f.ta, req, &mut || 4, |_| { called = true; Ok(DeliveryStatus::Accepted) }).unwrap_err(), Error::Denied);
+    assert!(!called);
+    drop(f.owner);
+
+    let mut f = fixture();
+    let register = PrivateUse { request: Uuid::new_v4(), record: f.receipt.record, fields: fields(&[Field::Username, Field::Password]),
+        destination: "test-service".into(), action: PrivateAction::Register };
+    f.owner.use_secret(&agent("a"), f.ta, register, &mut || 3, |_| Ok(DeliveryStatus::Accepted)).unwrap();
+    for delivery in f.owner.app.deliveries.values_mut() { delivery.at = Some(3 - snapshot::RETRY_WINDOW); }
+    let again = PrivateUse { request: Uuid::new_v4(), record: f.receipt.record, fields: fields(&[Field::Username, Field::Password]),
+        destination: "test-service".into(), action: PrivateAction::Register };
+    let mut called = false;
+    assert_eq!(f.owner.use_secret(&agent("a"), f.ta, again, &mut || 4, |_| { called = true; Ok(DeliveryStatus::Accepted) }).unwrap_err(), Error::Conflict);
+    assert!(!called);
+}
+
+#[test]
+fn rekey_replaces_the_seed_and_interruption_stays_recoverable() {
+    let mut f = fixture();
+    let new_seed = crypto::generate_mnemonic().unwrap();
+    let generation = f.owner.app.generation;
+    f.owner.rekey(&admin(), &new_seed).unwrap();
+    assert_eq!(f.owner.app.generation, generation + 1);
+    assert!(f.owner.app.predecessor.is_some());
+    drop(f.owner);
+    assert!(DurableVault::open(f.dir.path(), &f.seed).is_err());
+    let mut owner = DurableVault::open(f.dir.path(), &new_seed).unwrap();
+    assert_eq!(owner.read_secret(&agent("a"), f.ta, f.receipt.record, fields(&[Field::Password]), 3).unwrap().expose()[&Field::Password],
+        "FAKE-canary-password");
+    let image = fs::read(f.dir.path().join(STATE)).unwrap();
+    assert!(!image.windows(b"FAKE-canary-password".len()).any(|part| part == b"FAKE-canary-password"));
+    assert_eq!(u32::from_be_bytes(image[8..12].try_into().unwrap()), HEADER_V3);
+    drop(owner);
+
+    let mut f = fixture();
+    let new_seed = crypto::generate_mnemonic().unwrap();
+    f.owner.store.fault = Some(FaultPoint::TempWrite);
+    assert_eq!(f.owner.rekey(&admin(), &new_seed).unwrap_err(), Error::NotPublished);
+    drop(f.owner);
+    assert!(DurableVault::open(f.dir.path(), &f.seed).is_ok());
+
+    let mut f = fixture();
+    let new_seed = crypto::generate_mnemonic().unwrap();
+    f.owner.store.fault = Some(FaultPoint::AfterIntent);
+    assert_eq!(f.owner.rekey(&admin(), &new_seed).unwrap_err(), Error::RecoveryRequired);
+    let pending = fs::read(f.dir.path().join(PENDING)).unwrap();
+    assert_eq!(&pending[..8], INTENT_MAGIC);
+    assert!(!pending.windows(b"FAKE-canary-password".len()).any(|part| part == b"FAKE-canary-password"));
+    drop(f.owner);
+    assert!(matches!(DurableVault::open(f.dir.path(), &f.seed), Err(Error::RecoveryRequired)));
+    assert!(matches!(DurableVault::open(f.dir.path(), &new_seed), Err(Error::RecoveryRequired)));
+    let owner = DurableVault::recover(f.dir.path(), &new_seed, &admin(), &mut || 4).unwrap();
+    assert_eq!(owner.app.records[&f.receipt.record].values.0[&Field::Password].as_str(), "FAKE-canary-password");
+    assert!(owner.app.tasks.keys().all(|id| owner.app.revoked_tasks.contains(id)));
+    drop(owner);
+    assert!(DurableVault::open(f.dir.path(), &f.seed).is_err());
+    assert!(DurableVault::open(f.dir.path(), &new_seed).is_ok());
+}

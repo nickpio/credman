@@ -29,13 +29,12 @@ impl DurableVault {
                 return Ok(Some(DeliveryReceipt { attempt: *id, status }));
             }
             // Once a registration might have dispatched, neither a new ID nor a model report may replay it.
-            if request.action == PrivateAction::Register && app.deliveries.values().any(|d|
-                d.record == request.record && d.action == PrivateAction::Register && d.dispatched)
+            if request.action == PrivateAction::Register && app.registration_sealed(request.record)
             { return Err(Error::Conflict); }
             if app.deliveries.len() >= 10_000 { return Err(Error::Capacity); }
             app.deliveries.insert(attempt, DeliveryAttempt {
                 task, record: request.record, version, destination: request.destination.clone(), fields: request.fields.clone(),
-                status: None, key: key.clone(), fingerprint, action: request.action, dispatched: true,
+                status: None, key: key.clone(), fingerprint, action: request.action, dispatched: true, at: Some(prepared_at),
             });
             if request.action == PrivateAction::Register {
                 app.records.get_mut(&request.record).ok_or(Error::Denied)?.signup = SignupState::Submitted;

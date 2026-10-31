@@ -1,5 +1,6 @@
 //! Explicit trusted-human reconciliation. Neither seed possession nor an agent request grants this authority.
 use super::*;
+use sha2::{Digest, Sha256};
 
 fn read_gate(dir: &File, name: &str) -> Result<(Vec<u8>, Vec<u8>), Error> {
     let file = open_file(dir, name, libc::O_RDONLY).map_err(|_| Error::RecoveryRequired)?;
@@ -21,34 +22,87 @@ fn equal<T: Serialize>(a: &T, b: &T) -> Result<bool, Error> {
     Ok(*left == *right)
 }
 
+fn referenced_task(app: &Application, id: Uuid) -> bool {
+    app.records.values().any(|record| record.task == id)
+        || app.grants.values().any(|grant| grant.issuer_task == id)
+        || app.deliveries.values().any(|delivery| delivery.task == id || delivery.key.task == id)
+        || app.requests.keys().any(|key| key.task == id)
+}
+
 fn transition(old: &Application, next: &Application) -> Result<(), Error> {
-    if old.generation.checked_add(1) != Some(next.generation) || !old.revoked_tasks.is_subset(&next.revoked_tasks) {
+    if old.generation.checked_add(1) != Some(next.generation) || (old.tasks.is_empty() != next.tasks.is_empty() && next.tasks.is_empty()) {
         return Err(Error::RecoveryRequired);
     }
-    for (id, t) in &old.tasks {
-        if !equal(t, next.tasks.get(id).ok_or(Error::RecoveryRequired)?)? { return Err(Error::RecoveryRequired); }
+    for id in &old.revoked_tasks {
+        if next.tasks.contains_key(id) && !next.revoked_tasks.contains(id) { return Err(Error::RecoveryRequired); }
+    }
+    for (id, task) in &old.tasks {
+        if let Some(retained) = next.tasks.get(id) {
+            if !equal(task, retained)? { return Err(Error::RecoveryRequired); }
+        } else {
+            let expired = next.last_time.or(old.last_time).is_some_and(|now| task.expires_at <= now);
+            if (!expired && !old.revoked_tasks.contains(id)) || referenced_task(next, *id) {
+                return Err(Error::RecoveryRequired);
+            }
+        }
     }
     for (id, r) in &old.records {
-        let n = next.records.get(id).ok_or(Error::RecoveryRequired)?;
-        if r.owner != n.owner || r.workspace != n.workspace || r.created_by != n.created_by || r.task != n.task
-            || r.service != n.service || r.origin != n.origin || r.kind != n.kind || r.revision > n.revision
-            || r.secret_version > n.secret_version || (r.deleted && !n.deleted)
-            || r.restored != n.restored
+        if let Some(n) = next.records.get(id) {
+            if r.owner != n.owner || r.workspace != n.workspace || r.created_by != n.created_by || r.task != n.task
+                || r.service != n.service || r.origin != n.origin || r.kind != n.kind || r.revision > n.revision
+                || r.secret_version > n.secret_version || (r.deleted && !n.deleted)
+                || r.restored != n.restored
+                || (r.revision == n.revision && (r.secret_version != n.secret_version || r.deleted != n.deleted
+                    || !equal(&r.values, &n.values)?))
+            { return Err(Error::RecoveryRequired); }
+        } else if !r.deleted || next.grants.values().any(|grant| grant.record == *id)
+            || next.deliveries.values().any(|delivery| delivery.record == *id)
+            || next.requests.values().any(|cached| cached.result.record == *id)
         { return Err(Error::RecoveryRequired); }
     }
     for (id, g) in &old.grants {
-        let n = next.grants.get(id).ok_or(Error::RecoveryRequired)?;
-        if g.record != n.record || g.version != n.version || g.issuer_task != n.issuer_task || g.admin_issued != n.admin_issued
-            || (g.revoked && !n.revoked) || !equal(&g.spec, &n.spec)? { return Err(Error::RecoveryRequired); }
+        if let Some(n) = next.grants.get(id) {
+            if g.record != n.record || g.version != n.version || g.issuer_task != n.issuer_task || g.admin_issued != n.admin_issued
+                || (g.revoked && !n.revoked) || !equal(&g.spec, &n.spec)? { return Err(Error::RecoveryRequired); }
+        } else {
+            let expired = next.last_time.or(old.last_time).is_some_and(|now| g.spec.expires_at <= now);
+            if (!g.revoked && !expired) || next.requests.values().any(|cached| cached.result.grant == Some(*id)) {
+                return Err(Error::RecoveryRequired);
+            }
+        }
     }
     for (key, cached) in &old.requests {
-        if !equal(cached, next.requests.get(key).ok_or(Error::RecoveryRequired)?)? { return Err(Error::RecoveryRequired); }
+        if let Some(retained) = next.requests.get(key) {
+            if !equal(cached, retained)? { return Err(Error::RecoveryRequired); }
+        } else {
+            let through = next.baselines.get(&cached.result.record).map(|base| base.through).unwrap_or(0);
+            let old_revision = old.records.get(&cached.result.record).map(|record| record.revision).unwrap_or(0);
+            let covered = cached.result.revision <= through && through <= old_revision;
+            let record_removed = !next.records.contains_key(&cached.result.record)
+                && old.records.get(&cached.result.record).is_some_and(|record| record.deleted);
+            if !covered && !record_removed { return Err(Error::RecoveryRequired); }
+        }
     }
     for (id, d) in &old.deliveries {
-        let n = next.deliveries.get(id).ok_or(Error::RecoveryRequired)?;
-        let mut expected = d.clone();
-        if d.status.is_none() { expected.status = n.status; expected.dispatched = n.dispatched; }
-        if !equal(&expected, n)? { return Err(Error::RecoveryRequired); }
+        if let Some(n) = next.deliveries.get(id) {
+            let mut expected = d.clone();
+            if d.status.is_none() { expected.status = n.status; expected.dispatched = n.dispatched; }
+            if !equal(&expected, n)? { return Err(Error::RecoveryRequired); }
+        } else if d.status.is_none()
+            || d.action == PrivateAction::Register && d.dispatched && next.records.contains_key(&d.record)
+                && !next.baselines.get(&d.record).is_some_and(|base| base.registration_dispatched)
+        {
+            return Err(Error::RecoveryRequired);
+        } else if d.action == PrivateAction::Login && d.dispatched && d.status == Some(DeliveryStatus::Accepted) {
+            if let Some(record) = next.records.get(&d.record) {
+                let still = record.signup == SignupState::VerifiedLogin && record.secret_version == d.version;
+                let sealed = next.baselines.get(&d.record).is_some_and(|base| base.verified_login);
+                let retained = next.deliveries.values().any(|delivery| delivery.record == d.record
+                    && delivery.action == PrivateAction::Login && delivery.dispatched
+                    && delivery.status == Some(DeliveryStatus::Accepted) && delivery.version == record.secret_version);
+                if still && !sealed && !retained { return Err(Error::RecoveryRequired); }
+            }
+        }
     }
     Ok(())
 }
@@ -65,6 +119,7 @@ fn sanitize(app: &mut Application, now: Time) -> Result<(), Error> {
     }
     app.clock_frozen = false;
     app.last_time = Some(now);
+    app.predecessor = None;
     snapshot::validate(app).map_err(|_| Error::RecoveryRequired)
 }
 
@@ -101,12 +156,40 @@ fn validate_pending(dir: &File, mnemonic: &str, visible: &[u8]) -> Result<(), Er
     if old.is_empty() {
         if !safe_initial_publication(&candidate) { return Err(Error::RecoveryRequired); }
     } else {
-        let (previous, _, old_salt, old_kdf) = unseal(&old, mnemonic).map_err(|_| Error::RecoveryRequired)?;
-        if salt != old_salt || kdf != old_kdf { return Err(Error::RecoveryRequired); }
-        transition(&previous, &candidate)?;
+        match unseal(&old, mnemonic) {
+            Ok((previous, _, old_salt, old_kdf)) => {
+                if salt != old_salt || kdf != old_kdf {
+                    let hash: [u8; 32] = Sha256::digest(&old).into();
+                    if candidate.predecessor != Some(hash) { return Err(Error::RecoveryRequired); }
+                }
+                transition(&previous, &candidate)?;
+            }
+            // The previous image is bound by the hash inside the new seed's ciphertext.
+            Err(_) => {
+                let hash: [u8; 32] = Sha256::digest(&old).into();
+                if candidate.predecessor != Some(hash) { return Err(Error::RecoveryRequired); }
+            }
+        }
     }
-    if visible != next && visible != old { return Err(Error::RecoveryRequired); }
+    if visible != next.as_slice() && visible != old.as_slice() { return Err(Error::RecoveryRequired); }
     Ok(())
+}
+
+/// Install a re-keyed image when the visible file still decrypts only with the previous seed.
+fn adopt_rekeyed(dir: &File, mnemonic: &str, admin: &AuthenticatedContext, visible: &[u8]) -> Result<(), Error> {
+    if !gate_exists(dir, PENDING)? { return Err(Error::RecoveryRequired); }
+    let (old, next) = read_gate(dir, PENDING)?;
+    if visible != old.as_slice() && visible != next.as_slice() { return Err(Error::RecoveryRequired); }
+    let (app, _, _, _) = unseal(&next, mnemonic).map_err(|_| Error::RecoveryRequired)?;
+    scope(&app, admin)?;
+    let hash: [u8; 32] = Sha256::digest(&old).into();
+    if app.predecessor != Some(hash) { return Err(Error::RecoveryRequired); }
+    if visible == next.as_slice() { return Ok(()); }
+    let temp = format!("rekey-adopt-{}.v2", Uuid::new_v4());
+    let mut file = open_file(dir, &temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL).map_err(|_| Error::RecoveryRequired)?;
+    file.write_all(&next).and_then(|()| file.sync_all()).map_err(|_| Error::RecoveryRequired)?;
+    rename(dir, &temp, STATE, false).map_err(|_| Error::RecoveryRequired)?;
+    dir.sync_all().map_err(|_| Error::RecoveryRequired)
 }
 
 fn write_pair(dir: &File, target: &str, old: &[u8], next: &[u8]) -> Result<(), Error> {
@@ -132,7 +215,13 @@ pub(super) fn recover_at(path: &Path, mnemonic: &str, admin: &AuthenticatedConte
     clock: &mut impl FnMut() -> Time, fault: Option<FaultPoint>) -> Result<DurableVault, Error> {
     if !admin.admin { return Err(Error::Denied); }
     let (dir, lock) = Store::acquire_recovery(path)?;
-    let on_disk = read_image(&dir, STATE)?;
+    let mut on_disk = read_image(&dir, STATE)?;
+    if let Some(image) = on_disk.as_ref() {
+        if unseal(image, mnemonic).is_err() {
+            adopt_rekeyed(&dir, mnemonic, admin, image)?;
+            on_disk = read_image(&dir, STATE)?;
+        }
+    }
     let missing_state = on_disk.is_none();
     // Initial copies must already carry revoked authority and registration-blocked records.
     let visible = match on_disk { Some(image) => image, None => absent_initial_image(&dir, mnemonic)? };
@@ -174,6 +263,9 @@ pub(super) fn recover_at(path: &Path, mnemonic: &str, admin: &AuthenticatedConte
     if has_pending { unlink(&dir, PENDING).map_err(|_| Error::RecoveryRequired)?; dir.sync_all().map_err(|_| Error::RecoveryRequired)?; }
     unlink(&dir, RECOVERY).map_err(|_| Error::RecoveryRequired)?;
     dir.sync_all().map_err(|_| Error::RecoveryRequired)?;
+    let persisted_last_time = app.last_time;
+    let persisted_frozen = app.clock_frozen;
     Ok(DurableVault { app, frozen: false, store: Store { dir, _lock: lock, key, salt, kdf,
-        current_image: Some(image), blocked: false, #[cfg(test)] fault: None } })
+        current_image: Some(image), blocked: false, persisted_last_time, persisted_frozen,
+        #[cfg(test)] fault: None } })
 }

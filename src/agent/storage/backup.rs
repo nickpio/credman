@@ -19,8 +19,9 @@ fn prepare_restored(app: &mut Application, admin: &AuthenticatedContext, now: Ti
             app.records.get_mut(&delivery.record).ok_or(Error::InvalidStorage)?.signup = SignupState::Unknown;
         }
     }
-    // Copying preserves the existing clock freeze and high-water.
+    // Copying preserves the existing clock freeze and high-water. The predecessor binds a different store's ciphertext.
     app.last_time = Some(app.last_time.map_or(now, |previous| previous.max(now)));
+    app.predecessor = None;
     snapshot::validate(app)
 }
 
@@ -48,18 +49,23 @@ fn encrypt_backup(app: &Application, secret: BackupSecret<'_>) -> Result<Vec<u8>
 }
 
 fn encrypt_snapshot(snapshot: &[u8], secret: BackupSecret<'_>) -> Result<Vec<u8>, Error> {
+    encrypt_snapshot_version(snapshot, secret, 3)
+}
+
+fn encrypt_snapshot_version(snapshot: &[u8], secret: BackupSecret<'_>, version: u32) -> Result<Vec<u8>, Error> {
     if snapshot.len() > snapshot::MAX_PLAINTEXT { return Err(Error::Capacity); }
     let salt = crypto::random_salt();
     let nonce = crypto::random_nonce();
     let kdf = KdfParams::current();
     let key = secret.derive(&salt, &kdf)?;
     let mut bytes = BACKUP_MAGIC.to_vec();
-    for word in [2, secret.kind(), kdf.m_kib, kdf.t_cost, kdf.p_cost] { bytes.extend_from_slice(&word.to_be_bytes()); }
+    for word in [version, secret.kind(), kdf.m_kib, kdf.t_cost, kdf.p_cost] { bytes.extend_from_slice(&word.to_be_bytes()); }
     bytes.extend_from_slice(&salt);
-    // Bind envelope version/kind/KDF/salt inside authenticated plaintext without changing shared crypto APIs.
+    // Version 3 also passes this prefix as AES-GCM associated data. Version 2 keeps the prefix only inside plaintext.
     let mut plaintext = Zeroizing::new(bytes.clone());
     plaintext.extend_from_slice(snapshot);
-    let ciphertext = crypto::encrypt(&key, &nonce, &plaintext).map_err(|_| Error::InvalidStorage)?;
+    let aad: &[u8] = if version >= 3 { &bytes } else { &[] };
+    let ciphertext = crypto::encrypt(&key, &nonce, &plaintext, aad).map_err(|_| Error::InvalidStorage)?;
     bytes.extend_from_slice(&nonce);
     bytes.extend_from_slice(&(ciphertext.len() as u64).to_be_bytes());
     bytes.extend_from_slice(&ciphertext);
@@ -75,8 +81,11 @@ fn decrypt_backup(bytes: &[u8], secret: BackupSecret<'_>) -> Result<Application,
         Ok(bytes)
     }
     let mut reader = Cursor::new(bytes);
-    if &array::<8>(&mut reader)? != BACKUP_MAGIC || u32::from_be_bytes(array(&mut reader)?) != 2
-        || u32::from_be_bytes(array(&mut reader)?) != secret.kind() { return Err(Error::InvalidStorage); }
+    if &array::<8>(&mut reader)? != BACKUP_MAGIC { return Err(Error::InvalidStorage); }
+    let version = u32::from_be_bytes(array(&mut reader)?);
+    if (version != 2 && version != 3) || u32::from_be_bytes(array(&mut reader)?) != secret.kind() {
+        return Err(Error::InvalidStorage);
+    }
     let kdf = KdfParams::validated(u32::from_be_bytes(array(&mut reader)?), u32::from_be_bytes(array(&mut reader)?),
         u32::from_be_bytes(array(&mut reader)?)).map_err(|_| Error::InvalidStorage)?;
     // Backup input is untrusted; never accept costs above the reviewed new-backup defaults.
@@ -89,7 +98,8 @@ fn decrypt_backup(bytes: &[u8], secret: BackupSecret<'_>) -> Result<Application,
     let offset = reader.position() as usize;
     if length != (bytes.len() - offset) as u64 { return Err(Error::InvalidStorage); }
     let key = secret.derive(&salt, &kdf)?;
-    let plaintext = Zeroizing::new(crypto::decrypt(&key, &nonce, &bytes[offset..]).map_err(|_| Error::InvalidStorage)?);
+    let aad: &[u8] = if version == 3 { &bytes[..prefix_len] } else { &[] };
+    let plaintext = Zeroizing::new(crypto::decrypt(&key, &nonce, &bytes[offset..], aad).map_err(|_| Error::InvalidStorage)?);
     if plaintext.len() < prefix_len || plaintext[..prefix_len] != bytes[..prefix_len] { return Err(Error::InvalidStorage); }
     snapshot::decode(&plaintext[prefix_len..])
 }

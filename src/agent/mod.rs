@@ -252,11 +252,31 @@ pub(crate) struct DeliveryReceipt { pub(crate) attempt: Uuid, pub(crate) status:
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RequestKey { owner: String, principal: String, task: Uuid, id: Uuid }
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum CachedKind { Create, Patch, Delete, Share, Revoke, ReportOutcome }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Remembered { fingerprint: [u8; 32], result: Receipt, kind: CachedKind }
+struct Remembered {
+    fingerprint: [u8; 32], result: Receipt, kind: CachedKind,
+    /// Vault clock when the receipt was stored. Absent on schema 2; treated as outside the retry window.
+    #[serde(default)]
+    at: Option<Time>,
+}
+
+/// Revisions `1..=through` have no cached receipt. `secret_version` is the value version after that prefix.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct RecordBaseline {
+    through: u64,
+    secret_version: u64,
+    delete_pruned: bool,
+    #[serde(default)]
+    pruned_grants: Vec<Uuid>,
+    #[serde(default)]
+    registration_dispatched: bool,
+    #[serde(default)]
+    verified_login: bool,
+}
 
 fn generation_fields(kind: CredentialKind, username: Option<&str>) -> Result<Fields, Error> {
     match (kind, username) {
@@ -305,6 +325,9 @@ struct DeliveryAttempt {
     fingerprint: [u8; 32],
     action: PrivateAction,
     dispatched: bool,
+    /// Vault clock when the attempt was stored. Absent on schema 2; treated as outside the retry window.
+    #[serde(default)]
+    at: Option<Time>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -333,12 +356,20 @@ struct Application {
     generation: u64,
     revoked_tasks: BTreeSet<Uuid>,
     deliveries: BTreeMap<Uuid, DeliveryAttempt>,
+    baselines: BTreeMap<Uuid, RecordBaseline>,
+    /// SHA-256 of the previous sealed image when this snapshot was re-keyed onto a new salt.
+    predecessor: Option<[u8; 32]>,
 }
 
 impl Application {
     fn audit(&mut self, event: AuditEvent) {
         if self.audit.len() == 10_000 { self.audit.pop_front(); }
         self.audit.push_back(event);
+    }
+
+    fn registration_sealed(&self, record: Uuid) -> bool {
+        self.baselines.get(&record).is_some_and(|base| base.registration_dispatched)
+            || self.deliveries.values().any(|d| d.record == record && d.action == PrivateAction::Register && d.dispatched)
     }
 
     /// Administration only. Agent metadata/disclosure paths never expose this stream.
@@ -592,7 +623,7 @@ impl Application {
                 Receipt { record, revision: r.revision, grant: None }
             }
         };
-        self.requests.insert(key, Remembered { fingerprint, result: receipt.clone(), kind });
+        self.requests.insert(key, Remembered { fingerprint, result: receipt.clone(), kind, at: Some(now) });
         self.audit(AuditEvent { task, record: receipt.record, request: Some(request), action: AuditAction::Mutation });
         Ok(receipt)
     }

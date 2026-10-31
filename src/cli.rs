@@ -69,6 +69,11 @@ enum AdminCommands {
         backup_fd: i32,
     },
     Recover,
+    /// Re-encrypt the vault with a new 12-word seed and a fresh salt
+    Rekey {
+        #[arg(long)]
+        new_seed_fd: i32,
+    },
 }
 
 pub(crate) fn run() -> Result<()> {
@@ -80,6 +85,7 @@ pub(crate) fn run() -> Result<()> {
                 AdminCommands::Restore { secret_fd, passphrase, backup_fd } =>
                     crate::agent_admin::Operation::Restore { secret_fd, passphrase, backup_fd },
                 AdminCommands::Recover => crate::agent_admin::Operation::Recover,
+                AdminCommands::Rekey { new_seed_fd } => crate::agent_admin::Operation::Rekey { new_seed_fd },
             };
             crate::agent_admin::run(crate::agent_admin::Options { directory, seed_fd, identity_fd, operation })
                 .map_err(|_| anyhow::anyhow!("administration refused"))
@@ -104,7 +110,7 @@ mod tests {
         assert_eq!(command.get_subcommands().map(|c| c.get_name()).collect::<Vec<_>>(),
             ["serve", "mcp", "admin"]);
         assert_eq!(command.find_subcommand("admin").unwrap().get_subcommands()
-            .map(|c| c.get_name()).collect::<Vec<_>>(), ["backup", "restore", "recover"]);
+            .map(|c| c.get_name()).collect::<Vec<_>>(), ["backup", "restore", "recover", "rekey"]);
         assert!(Cli::try_parse_from(["credman", "serve", "--directory", "synthetic", "--seed-fd", "3",
             "--config-fd", "4", "--admin-fd", "5", "--create"]).is_ok());
         assert!(Cli::try_parse_from(["credman", "serve", "--directory", "synthetic", "--seed-fd", "3",
@@ -117,6 +123,10 @@ mod tests {
             "--identity-fd", "4", "restore", "--secret-fd", "5", "--backup-fd", "6"]).is_ok());
         assert!(Cli::try_parse_from(["credman", "admin", "--directory", "synthetic", "--seed-fd", "3",
             "--identity-fd", "4", "recover"]).is_ok());
+        assert!(Cli::try_parse_from(["credman", "admin", "--directory", "synthetic", "--seed-fd", "3",
+            "--identity-fd", "4", "rekey", "--new-seed-fd", "5"]).is_ok());
+        assert!(Cli::try_parse_from(["credman", "admin", "--directory", "synthetic", "--seed-fd", "3",
+            "--identity-fd", "4", "rekey"]).is_err());
         assert!(Cli::try_parse_from(["credman"]).is_err());
         assert!(Cli::try_parse_from(["credman", "unsupported"]).is_err());
         for option in ["--unknown", "--seed"] {

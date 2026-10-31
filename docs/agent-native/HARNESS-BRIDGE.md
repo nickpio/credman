@@ -52,7 +52,7 @@ Configure destinations in the owner configuration before approving private use. 
 
 Private use performs a fixed verified-HTTPS GET. Agents cannot choose its URL, headers, CA file, or command. Delivery acceptance does not prove account creation or verified login.
 
-If a mutation reply is lost, its durable outcome can be unknown. Reconnect with a newly issued session and reconcile or retry the original request UUID under current task authority. A new request UUID can repeat a mutation.
+If a mutation reply is lost, its durable outcome can be unknown. Reconnect with a newly issued session and reconcile or retry the original request UUID under current task authority. That retry returns the cached result for 24 hours. After the receipt is compacted, the same UUID is a new operation when it is still authorized. A new request UUID can repeat a mutation.
 
 ## Diagnose clients
 
