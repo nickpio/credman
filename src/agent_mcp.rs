@@ -132,7 +132,7 @@ fn tools() -> Value {
     let grant = object(json!({"recipient":{"type":"string"},"fields":fields,
         "permissions":{"type":"array","items":{"enum":["MetadataRead","SecretUse","SecretWrite","AccessGrant","EntryDelete"]},"uniqueItems":true},
         "destinations":{"type":"array","items":{"type":"string"},"uniqueItems":true},
-        "expires_at":{"type":"integer"},"follow_active":{"const":false}}),
+        "expires_at":{"type":"integer"},"follow_active":{"type":"boolean"}}),
         &["recipient","fields","permissions","destinations","expires_at","follow_active"]);
     let expected = json!({"type":"integer","minimum":0,"maximum":u64::MAX});
     let variants = [
@@ -148,8 +148,11 @@ fn tools() -> Value {
     }).collect();
     let mutate = object(json!({"task":uuid,"request":uuid,"mutation":{"oneOf":mutations}}), &["task","request","mutation"]);
     let metadata = object(json!({"task":uuid,"record":uuid,"fields":metadata_fields}), &["task","record","fields"]);
+    let policy = object(json!({"length":{"type":"integer","minimum":16,"maximum":128},
+        "symbols":{"type":"boolean"},"require_classes":{"type":"boolean"}}),
+        &["length","symbols","require_classes"]);
     let mut generate = object(json!({"task":uuid,"request":uuid,"kind":{"enum":["Login","ApiKey"]},
-        "username":{"type":"string","minLength":1,"maxLength":2048}}), &["task","request","kind"]);
+        "username":{"type":"string","minLength":1,"maxLength":2048},"policy":policy}), &["task","request","kind"]);
     generate["oneOf"] = json!([
         {"properties":{"kind":{"const":"Login"}},"required":["username"]},
         {"properties":{"kind":{"const":"ApiKey"}},"not":{"required":["username"]}}

@@ -20,6 +20,7 @@ pub(super) fn approval(name: &str) -> TaskApproval {
         permissions: permissions(&[Permission::MetadataRead, Permission::SecretUse, Permission::SecretRead,
             Permission::SecretWrite, Permission::AccessGrant, Permission::EntryDelete]),
         destinations: strings(&["test-service"]), expires_at: 1000, share: Some(ShareBounds {
+            allow_follow_active: false,
             recipients: strings(&["b"]), fields: fields(&[Field::Username, Field::Password]),
             permissions: permissions(&[Permission::SecretUse, Permission::SecretRead, Permission::MetadataRead]),
             destinations: strings(&["test-service"]), expires_at: 500,
@@ -402,8 +403,27 @@ fn metadata_patch_preserves_secret_version_signup_and_pinned_use() {
 }
 
 #[test]
+fn username_change_invalidates_pinned_access() {
+    let (mut app, ta, tb, receipt) = setup();
+    share(&mut app, ta, receipt.record, grant());
+    app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Patch {
+        record: receipt.record, expected: 2, values: input(&[(Field::Username, "other-account")]),
+    }, 4).unwrap();
+    assert_eq!(app.records[&receipt.record].secret_version, 2);
+    assert_eq!(app.use_secret(&agent("b"), tb, receipt.record, fields(&[Field::Username, Field::Password]),
+        "test-service", 5, |_| panic!("changed identity must invalidate a pinned grant")).unwrap_err(), Error::Denied);
+    app.generation = 1;
+    super::snapshot::encode(&app).unwrap();
+}
+
+#[test]
 fn follow_active_grant_survives_secret_rotation_within_share_bounds() {
     let (mut app, ta, tb, r) = setup();
+    let mut following = grant(); following.follow_active = true;
+    assert_eq!(app.mutate(&agent("a"), ta, Uuid::new_v4(), Mutation::Share {
+        record: r.record, expected: 1, grant: following,
+    }, 3).unwrap_err(), Error::Denied);
+    app.tasks.get_mut(&ta).unwrap().share.as_mut().unwrap().allow_follow_active = true;
     let mut widened = grant();
     widened.follow_active = true;
     widened.recipient = "other".into();

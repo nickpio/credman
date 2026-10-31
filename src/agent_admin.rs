@@ -24,6 +24,7 @@ pub(crate) enum Operation {
     Backup { secret_fd: RawFd, passphrase: bool, output_fd: RawFd },
     Restore { secret_fd: RawFd, passphrase: bool, backup_fd: RawFd },
     Recover,
+    Rekey { new_seed_fd: RawFd },
 }
 
 #[derive(Deserialize)]
@@ -78,6 +79,7 @@ pub(crate) fn run(options: Options) -> Result<(), Error> {
         Operation::Backup { secret_fd, output_fd, .. } => { inputs.push(*secret_fd); Some(*output_fd) }
         Operation::Restore { secret_fd, backup_fd, .. } => { inputs.extend([*secret_fd, *backup_fd]); None }
         Operation::Recover => None,
+        Operation::Rekey { new_seed_fd } => { inputs.push(*new_seed_fd); None }
     };
     let mut unique = BTreeSet::new();
     for fd in inputs.iter().copied().chain(output_fd) {
@@ -112,6 +114,11 @@ pub(crate) fn run(options: Options) -> Result<(), Error> {
             let mut clock = || Utc::now().timestamp();
             let _owner = DurableVault::recover(&options.directory, &seed, &context, &mut clock)?;
             Ok(())
+        }
+        Operation::Rekey { new_seed_fd } => {
+            let new_seed = text(new_seed_fd)?;
+            let mut owner = DurableVault::open(&options.directory, &seed)?;
+            owner.rekey(&context, &new_seed)
         }
     }
 }

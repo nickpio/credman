@@ -94,7 +94,7 @@ class PrivateAcceptance(unittest.TestCase):
         for client in self.clients:
             self.assertIsNotNone(client.process.returncode)
 
-    def task(self, principal, recipients=(), origin=None):
+    def task(self, principal, recipients=(), origin=None, allow_follow_active=False):
         t = approval(principal, ['MetadataRead', 'SecretRead', 'SecretWrite', 'SecretUse',
                                  'AccessGrant', 'EntryDelete'], recipients)
         t['origin'] = origin or self.fixture.origin
@@ -104,6 +104,8 @@ class PrivateAcceptance(unittest.TestCase):
             t['share']['fields'] = t['fields'][:]
             t['share']['permissions'] = ['MetadataRead', 'SecretRead', 'SecretUse']
             t['share']['destinations'] = t['destinations'][:]
+            if allow_follow_active:
+                t['share']['allow_follow_active'] = True
         self.owner.approve(t)
         return t
 
@@ -167,6 +169,38 @@ class PrivateAcceptance(unittest.TestCase):
             self.assertTrue(events)
             offset += len(events)
         return all_events
+
+    def test_mcp_generation_policy_and_follow_active_authority(self):
+        restricted = self.task('agent-a', ['agent-b'])
+        permitted = self.task('agent-a', ['agent-b'], allow_follow_active=True)
+        client, _, _ = self.client('agent-a', [restricted, permitted])
+        schemas = {t['name']: t['inputSchema'] for t in client.rpc('tools/list')['result']['tools']}
+        self.assertIn('policy', schemas['credman_generate']['properties'])
+        args = {'task': restricted['id'], 'request': identifier(), 'kind': 'Login',
+                'username': 'synthetic-user',
+                'policy': {'length': 24, 'symbols': True, 'require_classes': True}}
+        result = client.call('credman_generate', args)
+        self.assertTrue(result.get('ok'))
+        record = result['receipt']
+        password = self.read_private(restricted, record, ['Password'])['Password']
+        self.protected.append(password.encode())
+        self.assertEqual(len(password), 24)
+        self.assertTrue(any(c.isupper() for c in password))
+        self.assertTrue(any(c.islower() for c in password))
+        self.assertTrue(any(c.isdigit() for c in password))
+        self.assertTrue(any(not c.isalnum() for c in password))
+        grant = {'recipient': 'agent-b', 'fields': ['Username', 'Password'],
+                 'permissions': ['SecretUse'], 'destinations': ['basic'],
+                 'expires_at': int(time.time()) + 200, 'follow_active': True}
+        def share(task, target):
+            return client.call('credman_mutate', {'task': task['id'], 'request': identifier(),
+                'mutation': {'Share': {'record': target['record'],
+                                       'expected': target['revision'], 'grant': grant}}})
+        self.denied(share(restricted, record))
+        permitted_record, _ = self.generate(client, permitted)
+        permitted_password = self.read_private(permitted, permitted_record, ['Password'])['Password']
+        self.protect(permitted_password, 'synthetic-user')
+        self.assertTrue(share(permitted, permitted_record).get('ok'))
 
     def test_private_generation_delegation_retry_and_revocation(self):
         ta, tb, tc = self.task('agent-a', ['agent-b']), self.task('agent-b'), self.task('agent-c')

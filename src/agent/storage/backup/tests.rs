@@ -95,6 +95,9 @@ fn wrong_secret_kind_version_cost_corruption_and_invalid_inner_snapshot_are_reje
         }
         assert!(matches!(decrypt_backup(&damaged, secret), Err(Error::InvalidStorage)));
     }
+    let legacy = encrypt_snapshot_version(&snapshot::encode(&f.owner.app).unwrap(), secret, 2).unwrap();
+    assert_eq!(u32::from_be_bytes(legacy[8..12].try_into().unwrap()), 2);
+    assert_eq!(decrypt_backup(&legacy, secret).unwrap().records.len(), f.owner.app.records.len());
     let inner = encrypt_snapshot(br#"{"schema":99}"#, secret).unwrap();
     assert!(matches!(decrypt_backup(&inner, secret), Err(Error::InvalidStorage)));
     assert!(f.owner.export_backup(&admin(), BackupSecret::Passphrase("short")).is_err());

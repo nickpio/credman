@@ -1,5 +1,5 @@
 use aes_gcm::{
-    aead::{Aead, KeyInit},
+    aead::{Aead, KeyInit, Payload},
     Aes256Gcm, Key, Nonce,
 };
 use argon2::{Algorithm, Argon2, Params, Version};
@@ -19,7 +19,9 @@ pub const ARGON2_T_COST: u32 = 3;
 pub const ARGON2_P_COST: u32 = 1;
 
 /// Sanity bounds for Argon2 params read from vault/backup headers (DoS / malformed files).
-pub const ARGON2_M_KIB_MIN: u32 = 8;
+/// 19 MiB is the minimum memory cost accepted from a header. Direct derivation helpers
+/// used by tests may still pass smaller parameters; those values are not store headers.
+pub const ARGON2_M_KIB_MIN: u32 = 19 * 1024;
 pub const ARGON2_M_KIB_MAX: u32 = 1024 * 1024; // 1 GiB
 pub const ARGON2_T_COST_MIN: u32 = 1;
 pub const ARGON2_T_COST_MAX: u32 = 100;
@@ -155,22 +157,22 @@ pub fn random_nonce() -> [u8; NONCE_LEN] {
     nonce
 }
 
-pub fn encrypt(key: &VaultKey, nonce: &[u8; NONCE_LEN], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub fn encrypt(key: &VaultKey, nonce: &[u8; NONCE_LEN], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key.as_bytes()));
     let nonce = Nonce::from_slice(nonce);
     cipher
-        .encrypt(nonce, plaintext)
+        .encrypt(nonce, Payload { msg: plaintext, aad })
         .map_err(|_| CryptoError::Encrypt)
 }
 
-pub fn decrypt(key: &VaultKey, nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub fn decrypt(key: &VaultKey, nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
     if nonce.len() != NONCE_LEN {
         return Err(CryptoError::BadNonce);
     }
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key.as_bytes()));
     let nonce = Nonce::from_slice(nonce);
     cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(nonce, Payload { msg: ciphertext, aad })
         .map_err(|_| CryptoError::Decrypt)
 }
 
@@ -206,9 +208,10 @@ mod tests {
         let key = derive_key(&phrase, &salt, &params).unwrap();
         let nonce = random_nonce();
         let pt = b"hello vault";
-        let ct = encrypt(&key, &nonce, pt).unwrap();
-        let out = decrypt(&key, &nonce, &ct).unwrap();
+        let ct = encrypt(&key, &nonce, pt, b"header").unwrap();
+        let out = decrypt(&key, &nonce, &ct, b"header").unwrap();
         assert_eq!(out, pt);
+        assert!(decrypt(&key, &nonce, &ct, b"other-header").is_err());
     }
 
     #[test]
@@ -220,8 +223,8 @@ mod tests {
         let key = derive_key(&phrase, &salt, &params).unwrap();
         let bad = derive_key(&other, &salt, &params).unwrap();
         let nonce = random_nonce();
-        let ct = encrypt(&key, &nonce, b"secret").unwrap();
-        assert!(decrypt(&bad, &nonce, &ct).is_err());
+        let ct = encrypt(&key, &nonce, b"secret", b"").unwrap();
+        assert!(decrypt(&bad, &nonce, &ct, b"").is_err());
     }
 
     #[test]
@@ -246,7 +249,7 @@ mod tests {
     #[test]
     fn rejects_out_of_bounds_params() {
         assert!(matches!(
-            KdfParams::validated(4, 1, 1),
+            KdfParams::validated(ARGON2_M_KIB_MIN - 1, 1, 1),
             Err(CryptoError::UnsupportedParams)
         ));
         assert!(matches!(
@@ -254,13 +257,14 @@ mod tests {
             Err(CryptoError::UnsupportedParams)
         ));
         assert!(matches!(
-            KdfParams::validated(64, ARGON2_T_COST_MAX + 1, 1),
+            KdfParams::validated(ARGON2_M_KIB, ARGON2_T_COST_MAX + 1, 1),
             Err(CryptoError::UnsupportedParams)
         ));
         assert!(matches!(
-            KdfParams::validated(64, 1, ARGON2_P_COST_MAX + 1),
+            KdfParams::validated(ARGON2_M_KIB, 1, ARGON2_P_COST_MAX + 1),
             Err(CryptoError::UnsupportedParams)
         ));
+        assert!(KdfParams::validated(ARGON2_M_KIB_MIN, 1, 1).is_ok());
         assert!(KdfParams::validated(ARGON2_M_KIB, ARGON2_T_COST, ARGON2_P_COST).is_ok());
     }
 

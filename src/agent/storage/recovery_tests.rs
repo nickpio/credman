@@ -23,7 +23,7 @@ fn human_recovery_selects_visible_valid_image_and_revokes_authority_without_losi
     let record = &owner.app.records[&f.receipt.record];
     assert_eq!(record.created_by, "a");
     assert_eq!(record.task, f.ta);
-    assert_eq!(record.secret_version, 1);
+    assert_eq!(record.secret_version, 2);
     assert!(record.values.0.get(&Field::Username).is_some_and(|v| v.as_str() == "changed-synthetic-user"));
     assert!(record.values.0.contains_key(&Field::Password));
     assert_eq!(owner.app.revoked_tasks.len(), owner.app.tasks.len());

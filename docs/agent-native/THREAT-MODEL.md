@@ -21,7 +21,7 @@ A host-capable agent sharing the human's Unix UID is a trusted host operator. Th
 | Read an unshared record | Task permissions and current field-scoped grants are required |
 | Extract credentials through MCP | Tools return metadata, references, and receipts; plaintext reads are confined to private human administration |
 | Widen a share or re-share without approval | Issuer sharing bounds constrain recipient, fields, permissions, destinations, and expiry |
-| Reuse a revoked, expired, or changed credential grant | Current authority is rechecked, including cached requests. Pinned grants match one secret version; `follow_active` grants allow later versions. Metadata edits do not rotate the secret version |
+| Reuse a revoked, expired, or changed credential grant | Current authority is rechecked, including cached requests. Pinned grants match one secret version; `follow_active` grants allow later versions. Label and notes edits do not rotate the secret version; username and secret edits do |
 | Reuse an attachment credential | Tokens attach once, expire within the owner lifetime, and are revocable |
 | Redirect a secret to another consumer | The supervisor configures the fixed HTTPS URL and authentication scheme; redirects and proxies are disabled |
 | Smuggle commands or headers through credential values | Values are validated and escaped for a fixed curl invocation using private stdin |
@@ -32,7 +32,7 @@ A host-capable agent sharing the human's Unix UID is a trusted host operator. Th
 
 ## Persistence and disclosure boundaries
 
-Records and access-control state are persisted together inside authenticated encrypted snapshots. Unique private temporary files, file sync, atomic publication, and directory sync define the local-filesystem commit boundary. Recovery uses validated retained evidence and does not silently reuse stale in-memory authority.
+Records and access-control state are persisted together inside authenticated encrypted snapshots. Unique private temporary files, file sync, atomic publication, and directory sync define the local-filesystem commit boundary. Header version 3 authenticates the store header as associated data. A clock-only advance under 60 seconds can remain unpersisted; after a restart, detection of that high-water is coarse by up to 60 seconds. Receipts and completed deliveries older than 24 hours may be compacted. A retried request ID then runs as new work and still requires current authorization. Recovery uses validated retained evidence and does not silently reuse stale in-memory authority.
 
 Private use rechecks task, grant, and attached-session expiry immediately before the delivery callback, after durable intent publication. Revocation orders subsequent access through the single owner. It cannot recall values already delivered or undo an external action.
 
@@ -40,10 +40,10 @@ An explicit human `SecretRead` is disclosure. The authorized recipient can copy 
 
 ## Validation requirements
 
-- Unshared records, forged identities, widened grants, stale revisions, revoked tasks, expired sessions, and secret-version mismatches on pinned grants fail. `follow_active` grants survive secret rotation and still honor recipient, field, permission, destination, and expiry bounds.
+- Unshared records, forged identities, widened grants, stale revisions, revoked tasks, expired sessions, and secret-version mismatches on pinned grants fail. `follow_active` grants survive secret rotation and still honor recipient, field, permission, destination, and expiry bounds. Agent-issued grants require explicit `share.allow_follow_active` supervisor approval.
 - Generated credentials remain absent from MCP responses, errors, audit entries, and persisted plaintext files.
 - Basic, Bearer, header, and query delivery reach only the configured verified-TLS endpoint. Invalid certificates and redirects do not disclose credentials to another endpoint. Query parameters are part of that destination URL and are not placed in process arguments.
-- Cached successful requests require current authority. Uncertain delivery and lost replies do not cause automatic redispatch.
+- Cached successful requests require current authority. After the 24-hour retry window and compaction, a reused request ID is new work and still requires current authorization. Uncertain delivery and lost replies do not cause automatic redispatch.
 - Corrupt snapshots and backups fail closed. Publication faults preserve recovery evidence, and human recovery settles incomplete attempts conservatively.
 - Restored records remain accessible only after fresh task approval and grants. Offline administration closes unrelated inherited descriptors.
 

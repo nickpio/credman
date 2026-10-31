@@ -3,6 +3,7 @@
 use super::*;
 use crate::crypto::{self, KdfParams, VaultKey, NONCE_LEN, SALT_LEN};
 use fs2::FileExt;
+use sha2::{Digest, Sha256};
 use std::ffi::CString;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
@@ -17,6 +18,10 @@ const STATE: &str = "state.v2";
 const PENDING: &str = "pending.v2";
 const RECOVERY: &str = "recovery.v2";
 const MAX_IMAGE: usize = 32 * 1024 * 1024;
+const HEADER_V2: u32 = 2;
+const HEADER_V3: u32 = 3;
+/// Clock high-water is persisted at least this often. A restart can miss a rollback smaller than this gap.
+const CLOCK_PERSIST_INTERVAL: Time = 60;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FaultPoint { TempWrite, AfterIntent, AfterRename, DirectorySync, RecoveryBeforeRename, RecoveryAfterRename }
@@ -41,6 +46,8 @@ struct Store {
     kdf: KdfParams,
     current_image: Option<Vec<u8>>,
     blocked: bool,
+    persisted_last_time: Option<Time>,
+    persisted_frozen: bool,
     #[cfg(test)]
     fault: Option<FaultPoint>,
 }
@@ -143,23 +150,32 @@ fn rename(dir: &File, from: &str, to: &str, create_only: bool) -> std::io::Resul
     if rc < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
 }
 
+fn image_hash(bytes: &[u8]) -> [u8; 32] { Sha256::digest(bytes).into() }
+
 fn seal(app: &Application, key: &VaultKey, salt: &[u8; SALT_LEN], kdf: KdfParams) -> Result<Vec<u8>, Error> {
     let plaintext = snapshot::encode(app)?;
     seal_plaintext(&plaintext, key, salt, kdf)
 }
 
 fn seal_plaintext(plaintext: &[u8], key: &VaultKey, salt: &[u8; SALT_LEN], kdf: KdfParams) -> Result<Vec<u8>, Error> {
+    seal_version(plaintext, key, salt, kdf, HEADER_V3)
+}
+
+/// Version 3 binds magic, version, KDF parameters, and salt as AES-GCM associated data.
+/// Version 2 images use empty associated data and are rewritten as version 3 on the next publication.
+fn seal_version(plaintext: &[u8], key: &VaultKey, salt: &[u8; SALT_LEN], kdf: KdfParams, version: u32) -> Result<Vec<u8>, Error> {
     if plaintext.len() > snapshot::MAX_PLAINTEXT { return Err(Error::Capacity); }
+    let mut header = Vec::new();
+    header.extend_from_slice(MAGIC);
+    for word in [version, kdf.m_kib, kdf.t_cost, kdf.p_cost] { header.extend_from_slice(&word.to_be_bytes()); }
+    header.extend_from_slice(salt);
+    let aad: &[u8] = if version >= HEADER_V3 { &header } else { &[] };
     let nonce = crypto::random_nonce();
-    let ciphertext = crypto::encrypt(key, &nonce, plaintext).map_err(|_| Error::InvalidStorage)?;
-    let mut image = Vec::new();
-    image.extend_from_slice(MAGIC);
-    for word in [2, kdf.m_kib, kdf.t_cost, kdf.p_cost] { image.extend_from_slice(&word.to_be_bytes()); }
-    image.extend_from_slice(salt);
-    image.extend_from_slice(&nonce);
-    image.extend_from_slice(&(ciphertext.len() as u64).to_be_bytes());
-    image.extend_from_slice(&ciphertext);
-    Ok(image)
+    let ciphertext = crypto::encrypt(key, &nonce, plaintext, aad).map_err(|_| Error::InvalidStorage)?;
+    header.extend_from_slice(&nonce);
+    header.extend_from_slice(&(ciphertext.len() as u64).to_be_bytes());
+    header.extend_from_slice(&ciphertext);
+    Ok(header)
 }
 
 fn unseal(image: &[u8], mnemonic: &str) -> Result<(Application, VaultKey, [u8; SALT_LEN], KdfParams), Error> {
@@ -170,16 +186,20 @@ fn unseal(image: &[u8], mnemonic: &str) -> Result<(Application, VaultKey, [u8; S
         reader.read_exact(&mut bytes).map_err(|_| Error::InvalidStorage)?;
         Ok(bytes)
     }
-    if &array::<8>(&mut reader)? != MAGIC || u32::from_be_bytes(array(&mut reader)?) != 2 { return Err(Error::InvalidStorage); }
+    if &array::<8>(&mut reader)? != MAGIC { return Err(Error::InvalidStorage); }
+    let version = u32::from_be_bytes(array(&mut reader)?);
+    if version != HEADER_V2 && version != HEADER_V3 { return Err(Error::InvalidStorage); }
     let kdf = KdfParams::validated(u32::from_be_bytes(array(&mut reader)?),
         u32::from_be_bytes(array(&mut reader)?), u32::from_be_bytes(array(&mut reader)?)).map_err(|_| Error::InvalidStorage)?;
     let salt = array::<SALT_LEN>(&mut reader)?;
+    let header_len = usize::try_from(reader.position()).map_err(|_| Error::InvalidStorage)?;
+    let aad: &[u8] = if version == HEADER_V3 { &image[..header_len] } else { &[] };
     let nonce = array::<NONCE_LEN>(&mut reader)?;
     let length = u64::from_be_bytes(array(&mut reader)?);
     let offset = usize::try_from(reader.position()).map_err(|_| Error::InvalidStorage)?;
     if length != (image.len() - offset) as u64 { return Err(Error::InvalidStorage); }
     let key = crypto::derive_key(mnemonic, &salt, &kdf).map_err(|_| Error::InvalidStorage)?;
-    let plaintext = Zeroizing::new(crypto::decrypt(&key, &nonce, &image[offset..]).map_err(|_| Error::InvalidStorage)?);
+    let plaintext = Zeroizing::new(crypto::decrypt(&key, &nonce, &image[offset..], aad).map_err(|_| Error::InvalidStorage)?);
     let app = snapshot::decode(&plaintext)?;
     Ok((app, key, salt, kdf))
 }
@@ -206,11 +226,18 @@ impl Store {
     }
 
     fn publish(&mut self, app: &Application) -> Publication {
+        let key = self.key.clone();
+        let salt = self.salt;
+        let kdf = self.kdf;
+        self.publish_with(app, &key, salt, kdf)
+    }
+
+    fn publish_with(&mut self, app: &Application, key: &VaultKey, salt: [u8; SALT_LEN], kdf: KdfParams) -> Publication {
         if self.blocked || pending_exists(&self.dir) != Ok(false) {
             self.blocked = true;
             return Publication::Unknown;
         }
-        let image = match seal(app, &self.key, &self.salt, self.kdf) {
+        let image = match seal(app, key, &salt, kdf) {
             Ok(bytes) => bytes, Err(_) => return Publication::NotPublished,
         };
         let temp = format!("candidate-{}.v2", Uuid::new_v4());
@@ -254,6 +281,11 @@ impl Store {
             return Publication::Unknown;
         }
         self.current_image = Some(image);
+        self.key = key.clone();
+        self.salt = salt;
+        self.kdf = kdf;
+        self.persisted_last_time = app.last_time;
+        self.persisted_frozen = app.clock_frozen;
         // Main image is already confirmed durable. Cleanup failure cannot undo that fact.
         // Freeze this owner for maintenance; a retained intent also gates restart.
         if unlink(&self.dir, PENDING).is_err() || self.dir.sync_all().is_err() { self.blocked = true; }
@@ -277,6 +309,7 @@ impl DurableVault {
         let key = crypto::derive_key(mnemonic, &salt, &kdf).map_err(|_| Error::InvalidStorage)?;
         let mut owner = Self { app, frozen: false,
             store: Store { dir, _lock: lock, key, salt, kdf, current_image: None, blocked: false,
+                persisted_last_time: None, persisted_frozen: false,
                 #[cfg(test)] fault: INITIAL_PUBLICATION_FAULT.with(|fault| fault.take()) } };
         match owner.store.publish(&owner.app) {
             Publication::Durable => { owner.frozen = owner.store.blocked; Ok(owner) },
@@ -290,8 +323,11 @@ impl DurableVault {
         let image = read_image(&dir, STATE)?.ok_or(Error::InvalidStorage)?;
         let (app, key, salt, kdf) = unseal(&image, mnemonic)?;
         if app.deliveries.values().any(|attempt| attempt.status.is_none()) { return Err(Error::RecoveryRequired); }
+        let persisted_last_time = app.last_time;
+        let persisted_frozen = app.clock_frozen;
         Ok(Self { frozen: false, app, store: Store { dir, _lock: lock, key, salt, kdf,
-            current_image: Some(image), blocked: false, #[cfg(test)] fault: None } })
+            current_image: Some(image), blocked: false, persisted_last_time, persisted_frozen,
+            #[cfg(test)] fault: None } })
     }
 
     fn ready(&self) -> Result<(), Error> {
@@ -300,6 +336,18 @@ impl DurableVault {
 
     fn commit(&mut self, mut candidate: Application) -> Result<(), Error> {
         self.ready()?;
+        let clock_only = snapshot::clock_only_difference(&self.app, &candidate)?;
+        let due = match (self.store.persisted_last_time, candidate.last_time) {
+            (Some(base), Some(now)) => now.saturating_sub(base) >= CLOCK_PERSIST_INTERVAL,
+            (None, Some(_)) | (Some(_), None) => true,
+            (None, None) => false,
+        };
+        // Rollback detection across a restart is coarse by up to CLOCK_PERSIST_INTERVAL.
+        // The running owner still rejects a clock step behind its in-memory high-water immediately.
+        if clock_only && !due && candidate.clock_frozen == self.store.persisted_frozen {
+            self.app.last_time = candidate.last_time;
+            return Ok(());
+        }
         candidate.generation = self.app.generation.checked_add(1).ok_or(Error::Capacity)?;
         // Invalid staging must fail before any file operation; never publish an unchecked image.
         snapshot::validate(&candidate)?;
@@ -313,10 +361,30 @@ impl DurableVault {
     fn apply<R>(&mut self, operation: impl FnOnce(&mut Application) -> Result<R, Error>) -> Result<R, Error> {
         self.ready()?;
         let mut candidate = self.app.clone();
+        if snapshot::should_compact(&candidate) { snapshot::compact(&mut candidate); }
         let result = operation(&mut candidate);
-        // Persist trusted clock high-water/freeze even when authorization fails.
         self.commit(candidate)?;
         result
+    }
+
+    /// Re-encrypt the sealed image under a new 12-word seed and a fresh salt. Publication is the normal intent gate.
+    pub(crate) fn rekey(&mut self, admin: &AuthenticatedContext, new_mnemonic: &str) -> Result<(), Error> {
+        self.ready()?;
+        backup::admin_scope(&self.app, admin)?;
+        crypto::validate_mnemonic(new_mnemonic).map_err(|_| Error::Invalid)?;
+        let previous = self.store.current_image.clone().ok_or(Error::InvalidStorage)?;
+        let mut candidate = self.app.clone();
+        candidate.generation = self.app.generation.checked_add(1).ok_or(Error::Capacity)?;
+        candidate.predecessor = Some(image_hash(&previous));
+        snapshot::validate(&candidate)?;
+        let salt = crypto::random_salt();
+        let kdf = KdfParams::current();
+        let key = crypto::derive_key(new_mnemonic, &salt, &kdf).map_err(|_| Error::InvalidStorage)?;
+        match self.store.publish_with(&candidate, &key, salt, kdf) {
+            Publication::NotPublished => Err(Error::NotPublished),
+            Publication::Unknown => { self.frozen = true; Err(Error::RecoveryRequired) },
+            Publication::Durable => { self.app = candidate; self.frozen = self.store.blocked; Ok(()) },
+        }
     }
 
     pub(crate) fn approve_task(&mut self, ctx: &AuthenticatedContext, task: TaskApproval, now: Time) -> Result<(), Error> {
