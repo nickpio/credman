@@ -25,7 +25,13 @@ The configuration descriptor contains a JSON object with these fields:
 
 An empty `peers` list requires `--bridge-socket`. At most 16 preconnected peers and 16 destinations are accepted. A bridge socket resides under an owned mode-`0700` directory.
 
-Each destination has `id`, `service`, `origin`, `path`, `auth`, and optional `ca_file`. `auth` is `basic` or `bearer`. The HTTPS origin and service must match the task approval. The optional CA file requires an absolute nonsymlinked path whose file and ancestors have trusted ownership and no group or world write permissions.
+Each destination has `id`, `service`, `origin`, `path`, `auth`, optional `ca_file`, and optional `timeouts`. The HTTPS origin and service must match the task approval. An origin is `https://` plus a DNS name, a canonical IPv4 address, or a bracketed canonical IPv6 address, with an optional non-zero port. `https://api.example.com`, `https://127.0.0.1:8443`, and `https://[2001:db8::1]:443` are accepted. Zone IDs and non-canonical spellings are rejected.
+
+`auth` is `basic`, `bearer`, `{"header":{"name":"HEADER"}}`, or `{"query":{"param":"NAME"}}`. Basic requires exactly `Username` and `Password`. Bearer, header, and query require exactly `ApiKey`. A header destination sends that value as the named request header, with no scheme prefix. The name is an RFC 7230 token of 1 to 128 characters. It cannot be `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Cookie`, `Set-Cookie`, `Keep-Alive`, `TE`, `Trailer`, `Upgrade`, `Expect`, or any `Proxy-*` name. A query destination appends one parameter through curl's private configuration. The secret is not placed in argv or the environment. It is part of the request URL, so the destination can record it in access logs.
+
+`timeouts` defaults to `connect_ms` 1000 and `total_ms` 2500 when omitted. `connect_ms` must be from 100 through 10000, `total_ms` from 500 through 30000, and connect must be less than total. The owner kills curl if it is still running one second after `total_ms`. The owner is single-threaded and serves one request at a time, so that wait blocks every other request.
+
+The optional CA file requires an absolute nonsymlinked path whose file and ancestors have trusted ownership and no group or world write permissions.
 
 The owner serializes human control before workload processing. It stops admitting requests after 300 seconds. An in-flight operation and its bounded reply may finish afterward.
 
@@ -77,7 +83,7 @@ Agent mutations are externally tagged `Patch`, `Delete`, `Share`, `Revoke`, or `
 
 `metadata` accepts approved `Label`, `Username`, and `Notes` fields. Agent requests have no plaintext secret-read operation. Explicit human reads use the administration channel.
 
-`usage` contains `request`, `record`, `fields`, `destination`, and `action`. Only action `Use` is supported. Basic destinations require exactly `Username` and `Password`; Bearer destinations require exactly `ApiKey`.
+`usage` contains `request`, `record`, `fields`, `destination`, and `action`. Only action `Use` is supported. Basic destinations require exactly `Username` and `Password`. Bearer, header, and query destinations require exactly `ApiKey`.
 
 The owner prepares `/usr/bin/curl` before final authorization, then supplies credentials through private stdin for a fixed verified-HTTPS GET. Agents cannot choose the URL, headers, CA file, or command. Redirects, ambient curl configuration, proxies, and automatic retries are disabled. Response bodies, headers, and curl stderr are discarded. A receipt contains an attempt ID and delivery status, without secret values.
 

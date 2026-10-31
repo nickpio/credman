@@ -18,7 +18,15 @@ const MAX_CREDENTIAL: usize = 8192;
 // Fits the worst-case escaped URL, CA path, and two maximum-sized credentials
 // without reallocating a buffer that has held plaintext.
 const MAX_CONFIG: usize = 65_536;
-const WALL_TIMEOUT: Duration = Duration::from_millis(3500);
+const DEFAULT_CONNECT_MS: u64 = 1_000;
+const DEFAULT_TOTAL_MS: u64 = 2_500;
+const MIN_CONNECT_MS: u64 = 100;
+const MAX_CONNECT_MS: u64 = 10_000;
+const MIN_TOTAL_MS: u64 = 500;
+const MAX_TOTAL_MS: u64 = 30_000;
+// Curl is stopped at total plus this margin. The owner admits one request at a
+// time, so a long timeout blocks every other request until then.
+const WALL_MARGIN_MS: u64 = 1_000;
 
 // No Debug implementations on configuration, credentials, or the private child state.
 #[derive(Clone, Deserialize)]
@@ -30,13 +38,60 @@ pub(crate) struct Destination {
     pub(crate) path: String,
     pub(crate) auth: Auth,
     pub(crate) ca_file: Option<PathBuf>,
+    #[serde(default)]
+    pub(crate) timeouts: Timeouts,
 }
 
 #[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(deny_unknown_fields, default)]
+pub(crate) struct Timeouts {
+    #[serde(default = "default_connect_ms")]
+    pub(crate) connect_ms: u64,
+    #[serde(default = "default_total_ms")]
+    pub(crate) total_ms: u64,
+}
+
+fn default_connect_ms() -> u64 {
+    DEFAULT_CONNECT_MS
+}
+
+fn default_total_ms() -> u64 {
+    DEFAULT_TOTAL_MS
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            connect_ms: default_connect_ms(),
+            total_ms: default_total_ms(),
+        }
+    }
+}
+
+impl Timeouts {
+    fn validate(self) -> Result<(), Error> {
+        if (MIN_CONNECT_MS..=MAX_CONNECT_MS).contains(&self.connect_ms)
+            && (MIN_TOTAL_MS..=MAX_TOTAL_MS).contains(&self.total_ms)
+            && self.connect_ms < self.total_ms
+        {
+            Ok(())
+        } else {
+            Err(Error::Invalid)
+        }
+    }
+
+    fn wall(self) -> Duration {
+        Duration::from_millis(self.total_ms + WALL_MARGIN_MS)
+    }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Auth {
     Basic,
     Bearer,
+    Header { name: String },
+    Query { param: String },
 }
 
 pub(crate) struct PreparedHttps {
@@ -45,6 +100,7 @@ pub(crate) struct PreparedHttps {
     output: Option<ChildStdout>,
     prefix: Zeroizing<String>,
     auth: Auth,
+    wall_timeout: Duration,
 }
 
 impl Destination {
@@ -63,6 +119,8 @@ impl Destination {
         {
             return Err(Error::Invalid);
         }
+        self.timeouts.validate()?;
+        self.auth.validate()?;
         if let Some(path) = &self.ca_file {
             validate_ca(path)?;
         }
@@ -72,7 +130,24 @@ impl Destination {
     pub(crate) fn fields(&self) -> Fields {
         match self.auth {
             Auth::Basic => [Field::Username, Field::Password].into_iter().collect(),
-            Auth::Bearer => [Field::ApiKey].into_iter().collect(),
+            Auth::Bearer | Auth::Header { .. } | Auth::Query { .. } => {
+                [Field::ApiKey].into_iter().collect()
+            }
+        }
+    }
+}
+
+impl Auth {
+    fn validate(&self) -> Result<(), Error> {
+        let valid = match self {
+            Auth::Basic | Auth::Bearer => true,
+            Auth::Header { name } => valid_header_name(name),
+            Auth::Query { param } => valid_query_param(param),
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(Error::Invalid)
         }
     }
 }
@@ -84,16 +159,15 @@ fn valid_origin(origin: &str) -> bool {
     let Some(authority) = origin.strip_prefix("https://") else {
         return false;
     };
+    if authority.starts_with('[') {
+        return valid_ipv6_authority(authority);
+    }
     let (host, port) = match authority.split_once(':') {
         Some((host, port)) => (host, Some(port)),
         None => (authority, None),
     };
     if let Some(port) = port {
-        if port.is_empty()
-            || port.len() > 5
-            || !port.bytes().all(|b| b.is_ascii_digit())
-            || !port.parse::<u16>().is_ok_and(|p| p != 0)
-        {
+        if !valid_port(port) {
             return false;
         }
     }
@@ -122,6 +196,40 @@ fn valid_origin(origin: &str) -> bool {
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-')
     })
+}
+
+fn valid_port(port: &str) -> bool {
+    !port.is_empty()
+        && port.len() <= 5
+        && port.bytes().all(|b| b.is_ascii_digit())
+        && port.parse::<u16>().is_ok_and(|p| p != 0)
+}
+
+fn valid_ipv6_authority(authority: &str) -> bool {
+    let Some(rest) = authority.strip_prefix('[') else {
+        return false;
+    };
+    let Some((addr, after)) = rest.split_once(']') else {
+        return false;
+    };
+    // Zone IDs (`%eth0`, `%25eth0`) are not part of the address curl will dial.
+    if addr.is_empty() || addr.contains('%') {
+        return false;
+    }
+    let Ok(ip) = addr.parse::<std::net::Ipv6Addr>() else {
+        return false;
+    };
+    // Same rule as IPv4: only the canonical textual form, so curl sees the address we parsed.
+    if addr != ip.to_string() {
+        return false;
+    }
+    if after.is_empty() {
+        return true;
+    }
+    let Some(port) = after.strip_prefix(':') else {
+        return false;
+    };
+    valid_port(port)
 }
 
 fn valid_path(path: &str) -> bool {
@@ -185,10 +293,8 @@ impl PreparedHttps {
     pub(crate) fn prepare(destination: &Destination) -> Result<Self, Error> {
         destination.validate()?;
         let mut prefix = Zeroizing::new(String::with_capacity(MAX_CONFIG));
-        prefix.push_str("url = \"");
-        push_escaped(&mut prefix, &destination.origin);
-        push_escaped(&mut prefix, &destination.path);
-        prefix.push_str("\"\n");
+        append_url(&mut prefix, &destination.origin, &destination.path);
+        append_timeouts(&mut prefix, &destination.timeouts);
         if let Some(path) = &destination.ca_file {
             prefix.push_str("cacert = \"");
             push_escaped(&mut prefix, path.to_str().ok_or(Error::Invalid)?);
@@ -222,10 +328,6 @@ impl PreparedHttps {
                 "--no-insecure",
                 "--no-proxy-insecure",
                 "--tlsv1.2",
-                "--connect-timeout",
-                "1",
-                "--max-time",
-                "2.5",
                 "--basic",
                 "--output",
                 "/dev/null",
@@ -271,7 +373,8 @@ impl PreparedHttps {
             input: None,
             output: None,
             prefix,
-            auth: destination.auth,
+            auth: destination.auth.clone(),
+            wall_timeout: destination.timeouts.wall(),
         };
         let child = prepared.child.as_mut().ok_or(Error::InteractionRequired)?;
         prepared.input = child.stdin.take();
@@ -297,8 +400,8 @@ impl PreparedHttps {
         mut self,
         values: &BTreeMap<Field, &str>,
     ) -> Result<DeliveryStatus, Error> {
-        append_auth(&mut self.prefix, self.auth, values)?;
-        let deadline = Instant::now() + WALL_TIMEOUT;
+        append_auth(&mut self.prefix, &self.auth, values)?;
+        let deadline = Instant::now() + self.wall_timeout;
         let mut sent = 0;
         let mut status_bytes = [0u8; 4];
         let mut received = 0;
@@ -426,6 +529,94 @@ fn push_escaped(output: &mut String, value: &str) {
     }
 }
 
+fn append_url(output: &mut String, origin: &str, path: &str) {
+    // Bracketed IPv6 is copied verbatim. The child is started with --globoff, so `[]` is not a glob.
+    output.push_str("url = \"");
+    push_escaped(output, origin);
+    push_escaped(output, path);
+    output.push_str("\"\n");
+}
+
+fn append_timeouts(output: &mut String, timeouts: &Timeouts) {
+    output.push_str("connect-timeout = \"");
+    output.push_str(&timeout_seconds(timeouts.connect_ms));
+    output.push_str("\"\nmax-time = \"");
+    output.push_str(&timeout_seconds(timeouts.total_ms));
+    output.push_str("\"\n");
+}
+
+fn timeout_seconds(ms: u64) -> String {
+    let whole = ms / 1000;
+    let frac = ms % 1000;
+    if frac == 0 {
+        format!("{whole}")
+    } else {
+        format!("{whole}.{frac:03}")
+            .trim_end_matches('0')
+            .to_string()
+    }
+}
+
+fn is_tchar(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'|'
+                | b'~'
+        )
+}
+
+fn valid_header_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    (1..=128).contains(&bytes.len()) && bytes.iter().copied().all(is_tchar) && !denied_header(bytes)
+}
+
+fn denied_header(name: &[u8]) -> bool {
+    const DENIED: &[&[u8]] = &[
+        b"host",
+        b"content-length",
+        b"transfer-encoding",
+        b"connection",
+        b"cookie",
+        b"set-cookie",
+        b"keep-alive",
+        b"te",
+        b"trailer",
+        b"upgrade",
+        b"expect",
+    ];
+    (name.len() >= 6 && name[..6].eq_ignore_ascii_case(b"proxy-"))
+        || DENIED
+            .iter()
+            .any(|denied| name.eq_ignore_ascii_case(denied))
+}
+
+fn valid_query_param(param: &str) -> bool {
+    let bytes = param.as_bytes();
+    (1..=64).contains(&bytes.len())
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(*b, b'-' | b'_' | b'.'))
+}
+
+fn valid_private_ascii(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_CREDENTIAL
+        && value.bytes().all(|b| (0x20..=0x7e).contains(&b))
+}
+
 fn valid_basic(value: &str) -> bool {
     !value.is_empty() && value.len() <= MAX_CREDENTIAL && !value.chars().any(char::is_control)
 }
@@ -443,7 +634,7 @@ fn valid_bearer(value: &str) -> bool {
 
 fn append_auth(
     output: &mut String,
-    auth: Auth,
+    auth: &Auth,
     values: &BTreeMap<Field, &str>,
 ) -> Result<(), Error> {
     match auth {
@@ -473,6 +664,35 @@ fn append_auth(
             output.push_str("header = \"Authorization: Bearer ");
             push_escaped(output, token);
             output.push_str("\"\n");
+        }
+        Auth::Header { name } => {
+            if values.len() != 1 {
+                return Err(Error::Invalid);
+            }
+            let token = values.get(&Field::ApiKey).ok_or(Error::Invalid)?;
+            if !valid_header_name(name) || !valid_private_ascii(token) {
+                return Err(Error::Invalid);
+            }
+            output.push_str("header = \"");
+            push_escaped(output, name);
+            output.push_str(": ");
+            push_escaped(output, token);
+            output.push_str("\"\n");
+        }
+        Auth::Query { param } => {
+            if values.len() != 1 {
+                return Err(Error::Invalid);
+            }
+            let token = values.get(&Field::ApiKey).ok_or(Error::Invalid)?;
+            if !valid_query_param(param) || !valid_private_ascii(token) {
+                return Err(Error::Invalid);
+            }
+            // Always `name=content`. Omitting `=` makes curl read `@filename` from disk.
+            output.push_str("data-urlencode = \"");
+            push_escaped(output, param);
+            output.push('=');
+            push_escaped(output, token);
+            output.push_str("\"\nget\n");
         }
     }
     if output.len() > MAX_CONFIG {
@@ -504,6 +724,7 @@ mod tests {
             path: "/private".into(),
             auth,
             ca_file: None,
+            timeouts: Timeouts::default(),
         }
     }
 
@@ -518,6 +739,30 @@ mod tests {
             destination(Auth::Bearer).fields(),
             [Field::ApiKey].into_iter().collect()
         );
+        assert_eq!(
+            destination(Auth::Header {
+                name: "X-API-Key".into()
+            })
+            .fields(),
+            [Field::ApiKey].into_iter().collect()
+        );
+        assert_eq!(
+            destination(Auth::Query {
+                param: "api_key".into()
+            })
+            .fields(),
+            [Field::ApiKey].into_iter().collect()
+        );
+        assert!(destination(Auth::Header {
+            name: "X-API-Key".into()
+        })
+        .validate()
+        .is_ok());
+        assert!(destination(Auth::Query {
+            param: "api_key".into()
+        })
+        .validate()
+        .is_ok());
         for origin in [
             "http://localhost",
             "https://user@localhost",
@@ -525,7 +770,6 @@ mod tests {
             "https://localhost?x",
             "https://localhost#x",
             "https://localhost\\evil",
-            "https://[::1]",
             "https://localhost:0",
             "https://localhost:65536",
             "https://localhost:\n443",
@@ -535,6 +779,20 @@ mod tests {
             "https://localhost..",
             "https://-localhost",
             "https://é.test",
+            "https://::1",
+            "https://[::1]/",
+            "https://[::1]:0",
+            "https://[::1]:65536",
+            "https://[::1]:",
+            "https://[fe80::1%eth0]",
+            "https://[fe80::1%25eth0]",
+            "https://[0:0:0:0:0:0:0:1]",
+            "https://[2001:DB8::1]",
+            "https://[2001:0db8::1]",
+            "https://[]",
+            "https://[not-an-ip]",
+            "https://[::1]:443/",
+            "https://[::1]#x",
         ] {
             let mut d = destination(Auth::Basic);
             d.origin = origin.into();
@@ -556,7 +814,218 @@ mod tests {
             assert!(d.validate().is_err());
         }
         assert!(valid_origin("https://127.0.0.1:8443"));
+        for origin in [
+            "https://[::1]",
+            "https://[::1]:443",
+            "https://[2001:db8::1]:8443",
+            "https://[::ffff:127.0.0.1]",
+            "https://[::]",
+        ] {
+            assert!(valid_origin(origin), "{origin}");
+            let mut d = destination(Auth::Basic);
+            d.origin = origin.into();
+            assert!(d.validate().is_ok());
+        }
         assert!(valid_path("/fixed/a%20b"));
+    }
+
+    #[test]
+    fn timeouts_are_bounded_and_default_to_the_historical_limits() {
+        let parsed: Destination = serde_json::from_str(
+            r#"{"id":"fixture","service":"fixture","origin":"https://localhost","path":"/","auth":"bearer"}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.timeouts.connect_ms, 1_000);
+        assert_eq!(parsed.timeouts.total_ms, 2_500);
+        assert_eq!(parsed.timeouts.wall(), Duration::from_millis(3_500));
+        assert!(parsed.validate().is_ok());
+        let partial: Destination = serde_json::from_str(
+            r#"{"id":"fixture","service":"fixture","origin":"https://[::1]","path":"/v1","auth":{"header":{"name":"X-API-Key"}},"timeouts":{"total_ms":5000}}"#,
+        )
+        .unwrap();
+        assert_eq!(partial.timeouts.connect_ms, 1_000);
+        assert_eq!(partial.timeouts.total_ms, 5_000);
+        assert!(partial.validate().is_ok());
+        let empty: Destination = serde_json::from_str(
+            r#"{"id":"fixture","service":"fixture","origin":"https://localhost","path":"/","auth":"basic","timeouts":{}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (empty.timeouts.connect_ms, empty.timeouts.total_ms),
+            (1_000, 2_500)
+        );
+        assert!(serde_json::from_str::<Destination>(
+            r#"{"id":"fixture","service":"fixture","origin":"https://localhost","path":"/","auth":"bearer","timeouts":{"connect_ms":1000,"total_ms":2500,"retries":1}}"#
+        )
+        .is_err());
+        assert!(serde_json::from_str::<Destination>(
+            r#"{"id":"fixture","service":"fixture","origin":"https://localhost","path":"/","auth":{"header":{"name":"X-API-Key","extra":true}}}"#
+        )
+        .is_err());
+        for (connect_ms, total_ms) in [
+            (99, 2_500),
+            (10_001, 20_000),
+            (1_000, 499),
+            (1_000, 30_001),
+            (2_500, 2_500),
+            (10_000, 10_000),
+            (500, 500),
+        ] {
+            let mut d = destination(Auth::Basic);
+            d.timeouts = Timeouts {
+                connect_ms,
+                total_ms,
+            };
+            assert!(d.validate().is_err());
+        }
+        for (connect_ms, total_ms) in [
+            (100, 500),
+            (100, 10_000),
+            (10_000, 30_000),
+            (1_000, 2_500),
+            (9_999, 10_000),
+        ] {
+            let mut d = destination(Auth::Basic);
+            d.timeouts = Timeouts {
+                connect_ms,
+                total_ms,
+            };
+            assert!(d.validate().is_ok());
+        }
+        assert_eq!(timeout_seconds(100), "0.1");
+        assert_eq!(timeout_seconds(1_000), "1");
+        assert_eq!(timeout_seconds(1_050), "1.05");
+        assert_eq!(timeout_seconds(1_001), "1.001");
+        assert_eq!(timeout_seconds(2_500), "2.5");
+        assert_eq!(timeout_seconds(30_000), "30");
+        let mut config = String::new();
+        append_timeouts(
+            &mut config,
+            &Timeouts {
+                connect_ms: 1_500,
+                total_ms: 10_000,
+            },
+        );
+        assert_eq!(config, "connect-timeout = \"1.5\"\nmax-time = \"10\"\n");
+        let mut url = String::new();
+        append_url(&mut url, "https://[::1]:443", "/health");
+        assert_eq!(url, "url = \"https://[::1]:443/health\"\n");
+    }
+
+    #[test]
+    fn header_and_query_auth_reject_bad_names_and_control_characters() {
+        let max_name = "A".repeat(128);
+        for name in [
+            "X-API-Key",
+            "Authorization",
+            "X-Custom_1",
+            "a",
+            max_name.as_str(),
+        ] {
+            assert!(
+                destination(Auth::Header { name: name.into() })
+                    .validate()
+                    .is_ok(),
+                "{name}"
+            );
+        }
+        let too_long = "A".repeat(129);
+        for name in [
+            "",
+            "Host",
+            "host",
+            "HOST",
+            "Content-Length",
+            "Transfer-Encoding",
+            "Connection",
+            "Cookie",
+            "Set-Cookie",
+            "Keep-Alive",
+            "TE",
+            "Trailer",
+            "Upgrade",
+            "Expect",
+            "Proxy-Authorization",
+            "proxy-connection",
+            "Proxy-",
+            "X-API-Key: injected",
+            "Bad Name",
+            "name\n",
+            "name\r",
+            too_long.as_str(),
+        ] {
+            assert!(
+                destination(Auth::Header { name: name.into() })
+                    .validate()
+                    .is_err(),
+                "{name}"
+            );
+        }
+        let max_param = "k".repeat(64);
+        for param in ["api_key", "A", "a.b-c_d", max_param.as_str()] {
+            assert!(
+                destination(Auth::Query {
+                    param: param.into()
+                })
+                .validate()
+                .is_ok(),
+                "{param}"
+            );
+        }
+        let long_param = "k".repeat(65);
+        for param in [
+            "",
+            "a=b",
+            "a&b",
+            "@file",
+            "a b",
+            "a/b",
+            "a?b",
+            long_param.as_str(),
+            "name\n",
+        ] {
+            assert!(
+                destination(Auth::Query {
+                    param: param.into()
+                })
+                .validate()
+                .is_err(),
+                "{param}"
+            );
+        }
+        let header = Auth::Header {
+            name: "X-API-Key".into(),
+        };
+        let mut config = Zeroizing::new(String::new());
+        let values = BTreeMap::from([(Field::ApiKey, "a\"b\\c")]);
+        assert!(append_auth(&mut config, &header, &values).is_ok());
+        assert_eq!(config.as_str(), "header = \"X-API-Key: a\\\"b\\\\c\"\n");
+        let query = Auth::Query {
+            param: "api_key".into(),
+        };
+        let mut query_config = Zeroizing::new(String::new());
+        let values = BTreeMap::from([(Field::ApiKey, "a&b=c\"d")]);
+        assert!(append_auth(&mut query_config, &query, &values).is_ok());
+        assert_eq!(
+            query_config.as_str(),
+            "data-urlencode = \"api_key=a&b=c\\\"d\"\nget\n"
+        );
+        assert!(query_config.contains('='));
+        for bad in [
+            "x\nY",
+            "x\rY",
+            "x\0",
+            "x\u{7f}",
+            "x\u{1b}",
+            "",
+            "has space ok but\nno",
+        ] {
+            let values = BTreeMap::from([(Field::ApiKey, bad)]);
+            assert!(append_auth(&mut String::new(), &header, &values).is_err());
+            assert!(append_auth(&mut String::new(), &query, &values).is_err());
+        }
+        let spaced = BTreeMap::from([(Field::ApiKey, "space is printable")]);
+        assert!(append_auth(&mut String::new(), &header, &spaced).is_ok());
     }
 
     #[test]
@@ -566,28 +1035,30 @@ mod tests {
             (Field::Username, "synthetic\"user"),
             (Field::Password, "synthetic\\password"),
         ]);
-        assert!(append_auth(&mut config, Auth::Basic, &values).is_ok());
+        assert!(append_auth(&mut config, &Auth::Basic, &values).is_ok());
         assert_eq!(
             config.as_str(),
             "user = \"synthetic\\\"user:synthetic\\\\password\"\n"
         );
         for bad in ["x\nurl = https://elsewhere", "x\rheader", "x\0", "x\u{7f}"] {
             let values = BTreeMap::from([(Field::Username, "synthetic"), (Field::Password, bad)]);
-            assert!(append_auth(&mut Zeroizing::new(String::new()), Auth::Basic, &values).is_err());
+            assert!(
+                append_auth(&mut Zeroizing::new(String::new()), &Auth::Basic, &values).is_err()
+            );
         }
         let extra = BTreeMap::from([
             (Field::Username, "synthetic"),
             (Field::Password, "synthetic"),
             (Field::Notes, "extra"),
         ]);
-        assert!(append_auth(&mut String::new(), Auth::Basic, &extra).is_err());
+        assert!(append_auth(&mut String::new(), &Auth::Basic, &extra).is_err());
         for bad in ["x y", "x\nX-Header: injected", "x\"", "x\\", "=", "x=y"] {
             assert!(!valid_bearer(bad));
         }
         assert!(valid_bearer("synthetic-._~+/=="));
         let mut bearer = Zeroizing::new(String::with_capacity(MAX_CONFIG));
         let values = BTreeMap::from([(Field::ApiKey, "synthetic-token")]);
-        assert!(append_auth(&mut bearer, Auth::Bearer, &values).is_ok());
+        assert!(append_auth(&mut bearer, &Auth::Bearer, &values).is_ok());
         assert_eq!(
             bearer.as_str(),
             concat!("header = \"Authorization: ", "Bearer synthetic-token\"\n")
@@ -600,7 +1071,7 @@ mod tests {
             (Field::Username, credential.as_str()),
             (Field::Password, credential.as_str()),
         ]);
-        assert!(append_auth(&mut maximum, Auth::Basic, &values).is_ok());
+        assert!(append_auth(&mut maximum, &Auth::Basic, &values).is_ok());
         assert_eq!(maximum.capacity(), capacity);
         maximum.zeroize();
         assert!(maximum.is_empty());

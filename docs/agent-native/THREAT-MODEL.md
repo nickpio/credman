@@ -42,7 +42,7 @@ An explicit human `SecretRead` is disclosure. The authorized recipient can copy 
 
 - Unshared records, forged identities, widened grants, stale revisions, revoked tasks, expired sessions, and pinned-version mismatches fail.
 - Generated credentials remain absent from MCP responses, errors, audit entries, and persisted plaintext files.
-- Basic and Bearer delivery reach only the configured verified-TLS endpoint. Invalid certificates and redirects do not disclose credentials to another endpoint.
+- Basic, Bearer, header, and query delivery reach only the configured verified-TLS endpoint. Invalid certificates and redirects do not disclose credentials to another endpoint. Query parameters are part of that destination URL and are not placed in process arguments.
 - Cached successful requests require current authority. Uncertain delivery and lost replies do not cause automatic redispatch.
 - Corrupt snapshots and backups fail closed. Publication faults preserve recovery evidence, and human recovery settles incomplete attempts conservatively.
 - Restored records remain accessible only after fresh task approval and grants. Offline administration closes unrelated inherited descriptors.

@@ -8,7 +8,7 @@ One vault owner holds the encrypted store. A trusted supervisor approves tasks, 
 
 - Generate login passwords and API-key values inside the vault. Login generation takes a public username; generated secrets never appear in the response.
 - Share access with a named agent, limited by fields, permissions, destination IDs, and expiry. Grants pin the credential-value version.
-- Use credentials through a fixed HTTPS GET with Basic or Bearer authentication. The supervisor selects the endpoint, path, and optional CA certificate.
+- Use credentials through a fixed HTTPS GET. The supervisor selects the endpoint, path, authentication scheme (Basic, Bearer, one named header, or one query parameter), optional CA certificate, and timeouts.
 - Read authorized metadata, patch metadata, revoke grants, delete records, and report task outcomes through MCP.
 - Import existing credentials and perform explicitly authorized secret reads through a separate human administration channel.
 - Create encrypted backups, restore into a fresh store, and recover from ambiguous storage publication with human authorization.
@@ -37,7 +37,7 @@ A record ID conveys no authority by itself. Agents cannot approve tasks, change 
 | `credman_metadata` | Read approved `Label`, `Username`, or `Notes` fields | Authorized metadata |
 | `credman_use` | Authenticate a configured HTTPS GET | Attempt ID and delivery status |
 
-Basic authentication requires exactly `Username` and `Password`; Bearer authentication requires exactly `ApiKey`. Agents select an approved destination ID, while the supervisor controls its URL and authentication scheme. Redirects and automatic HTTP retries are disabled. HTTP response bodies, headers, and curl diagnostics are discarded.
+Basic authentication requires exactly `Username` and `Password`. Bearer, named-header, and query authentication require exactly `ApiKey`. Agents select an approved destination ID, while the supervisor controls its URL, authentication scheme, and timeouts. Redirects and automatic HTTP retries are disabled. HTTP response bodies, headers, and curl diagnostics are discarded. The owner handles one request at a time, so a destination timeout blocks its other requests.
 
 Delivery receipts use `Accepted`, `Rejected`, `Unknown`, or `HumanRequired`. An accepted HTTP response does not prove account registration or a verified login. Uncertain delivery is retained without automatic redispatch.
 
