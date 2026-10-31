@@ -31,6 +31,7 @@ class HTTPSFixture:
             self.key.chmod(0o600)
             self.expected = {}
             self.events = []
+            self.present = []
             self.tls_failures = 0
             self.lock = threading.Lock()
             self.tls_condition = threading.Condition(self.lock)
@@ -60,9 +61,15 @@ class HTTPSFixture:
                 def do_GET(self):
                     auth = self.headers.get('Authorization', '')
                     with fixture.lock:
-                        expected = fixture.expected.get(self.path)
-                        valid = expected is not None and auth == expected
-                        fixture.events.append((self.path, bool(auth), valid))
+                        spec = fixture.expected.get(self.path)
+                        if spec is None:
+                            header_name, wanted = 'Authorization', None
+                        else:
+                            header_name, wanted = spec
+                        presented = self.headers.get(header_name, '')
+                        valid = wanted is not None and presented == wanted
+                        fixture.events.append((self.path, bool(presented), valid))
+                        fixture.present.append({name.lower() for name in self.headers.keys()})
                     if self.path == '/drop':
                         self.connection.shutdown(socket.SHUT_RDWR)
                         self.connection.close()
@@ -109,13 +116,16 @@ class HTTPSFixture:
     def origin(self):
         return 'https://127.0.0.1:' + str(self.server.server_port)
 
-    def destination(self, name, path, auth, origin=None, ca_file=None):
-        return {'id': name, 'service': 'example-service', 'origin': origin or self.origin,
-                'path': path, 'auth': auth, 'ca_file': str(ca_file or self.cert)}
+    def destination(self, name, path, auth, origin=None, ca_file=None, timeouts=None):
+        value = {'id': name, 'service': 'example-service', 'origin': origin or self.origin,
+                 'path': path, 'auth': auth, 'ca_file': str(ca_file or self.cert)}
+        if timeouts is not None:
+            value['timeouts'] = timeouts
+        return value
 
-    def expect(self, path, authorization):
+    def expect(self, path, authorization, header='Authorization'):
         with self.lock:
-            self.expected[path] = authorization
+            self.expected[path] = (header, authorization)
 
     def snapshot(self):
         with self.lock:

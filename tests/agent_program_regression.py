@@ -46,6 +46,8 @@ class PrivateAcceptance(unittest.TestCase):
         f = self.fixture
         self.destinations = [f.destination('basic', '/basic', 'basic'),
                              f.destination('bearer', '/bearer', 'bearer'),
+                             f.destination('header', '/header', {'header': {'name': 'X-API-Key'}},
+                                           timeouts={'connect_ms': 1000, 'total_ms': 5000}),
                              f.destination('wrong-ca', '/ca', 'basic', ca_file=self.other_ca.cert),
                              self.bad_host.destination('wrong-host', '/host', 'basic'),
                              f.destination('redirect', '/redirect', 'basic'),
@@ -212,6 +214,20 @@ class PrivateAcceptance(unittest.TestCase):
         self.assertFalse(renewed.call('credman_generate', changed).get('ok'))
         self.assertTrue(self.owner.call({'op': 'revoke_task', 'task': ta['id']}).get('ok'))
         self.denied(renewed.call('credman_generate', generate))
+        self.collect_audit()
+
+    def test_custom_header_api_key_reaches_only_the_configured_header(self):
+        ta = self.task('agent-a')
+        a, _, _ = self.client('agent-a', [ta])
+        api, _ = self.generate(a, ta, 'ApiKey')
+        key = self.read_private(ta, api, ['ApiKey'])['ApiKey']
+        self.protect(key)
+        self.fixture.expect('/header', key, header='X-API-Key')
+        used, _ = self.use(a, ta, api, ['ApiKey'], 'header')
+        self.assertTrue(used.get('ok'))
+        self.assertEqual(used['receipt']['status'], 'Accepted')
+        self.assertEqual(self.fixture.snapshot(), [('/header', True, True)])
+        self.assertEqual(self.fixture.present[-1] & {'authorization', 'x-api-key'}, {'x-api-key'})
         self.collect_audit()
 
     def test_authority_import_unsupported_and_session_boundaries(self):

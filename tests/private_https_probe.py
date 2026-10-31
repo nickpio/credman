@@ -58,6 +58,8 @@ def observe_accept_errors(fixture):
 
 def request(fixture, ca, arguments, accept_errors):
     config = ('url = ' + json.dumps(fixture.origin + '/probe') + '\n'
+              'connect-timeout = "1"\n'
+              'max-time = "2.5"\n'
               'cacert = ' + json.dumps(str(ca)) + '\n'
               'user = "synthetic-user:synthetic-password"\n')
     before = len(fixture.snapshot())
