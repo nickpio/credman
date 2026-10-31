@@ -6,7 +6,7 @@ Each agent harness launches a Credman MCP stdio frontend using its own superviso
 
 1. Start the owner with an owned mode-`0700` store directory, private seed and configuration descriptors, a human administration socket, and a private bridge socket.
 2. Through the human channel, approve each agent's task with explicit fields, permissions, service, origin, destination IDs, sharing bounds, and expiry.
-3. Call `issue_session` with the agent principal, task UUID allowlist, and expiry. The private response contains a `session` object.
+3. Call `issue_session` with the agent principal, task UUID allowlist, and expiry. Each task must already be an unexpired, unrevoked approval for that principal. The private response contains a `session` object. The human channel can also list tasks, records, grants, and sessions; those pages contain no secret values, metadata values, or attachment tokens.
 4. Write that object directly to a new owned mode-`0600` regular single-link file under an owned mode-`0700` directory.
 5. Configure the harness to launch `credman mcp --session-file PATH` with an absolute executable path.
 
@@ -38,7 +38,7 @@ OpenCode credential use is unsupported. Its connection, exact tool discovery, an
 
 ## Handle sessions
 
-Attachment consumes the token once. Do not share one session file across client launches. Disconnect, revocation, restart, and consumed-token reconnects require fresh issuance. Session expiry cannot exceed the owner's 300-second request-admission window.
+Attachment consumes the token once. Do not share one session file across client launches. Disconnect, revocation, restart, and consumed-token reconnects require fresh issuance. Session expiry cannot exceed the owner's request-admission window. That window is 300 seconds unless `max_lifetime_secs` sets another value from 60 through 86400. An optional `idle_timeout_secs` in that same range, and no longer than the admission window, stops the owner after a quiet period with no administration or peer request. The MCP frontend reads until the session `expires_at`, bounded by 86400 seconds. A failed owner or frontend prints `credman COMMAND: KIND` and uses the exit codes in the [runtime reference](AGENT-RUNTIME.md#exit-codes). The kind is not a secret and the process does not print configuration contents.
 
 Connection diagnostics can consume tokens. Provision a separate session for a probe, then issue a fresh session for the agent. Use the human `revoke_session` operation to invalidate attachment or active session authority. Task and grant revocation also remain effective after attachment.
 

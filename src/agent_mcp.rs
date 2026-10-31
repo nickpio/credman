@@ -215,11 +215,13 @@ pub(crate) fn run(path: &Path) -> Result<(), Error> {
     // SAFETY: fcntl has no pointer arguments. Nonblocking writes enforce the stdout deadline.
     let flags = unsafe { libc::fcntl(1, libc::F_GETFL) };
     if flags < 0 || unsafe { libc::fcntl(1, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 { return Err(Error::Invalid); }
-    let mut channel = crate::agent_bridge::connect(path, chrono::Utc::now().timestamp())?;
+    let now_ts = chrono::Utc::now().timestamp();
+    let (mut channel, expires_at) = crate::agent_bridge::connect(path, now_ts)?;
     let mut state = State::Initialize;
     // SAFETY: this command exclusively owns its stdin and never uses the stdio singleton.
     let mut input = BufReader::new(unsafe { File::from_raw_fd(0) });
-    let deadline = Instant::now() + Duration::from_secs(300);
+    // The session file's expiry is the frontend deadline. connect already rejected an unbounded value.
+    let deadline = Instant::now() + crate::agent_bridge::frontend_deadline(expires_at, chrono::Utc::now().timestamp())?;
     while let Some(bytes) = line(&mut input, deadline)? {
         match strict_json(&bytes) {
             Ok(value) => if let Some(response) = dispatch(value, &mut state, &mut channel) { output(response)?; },

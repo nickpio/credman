@@ -19,6 +19,12 @@ use crate::agent_https::{Destination, PreparedHttps};
 use crate::agent_ipc::{fits_frame, strict_json, FramedChannel};
 use crate::agent_bridge::{Listener, Sessions};
 
+pub(crate) const MIN_LIFETIME_SECS: u64 = 60;
+pub(crate) const MAX_LIFETIME_SECS: u64 = 86_400;
+pub(crate) const DEFAULT_LIFETIME_SECS: u64 = 300;
+
+fn default_lifetime() -> u64 { DEFAULT_LIFETIME_SECS }
+
 pub(crate) struct RunOptions {
     pub(crate) directory: PathBuf,
     pub(crate) seed_fd: RawFd,
@@ -37,6 +43,21 @@ struct SupervisorConfig {
     peers: Vec<PeerConfig>,
     #[serde(default)]
     destinations: Vec<Destination>,
+    #[serde(default = "default_lifetime")]
+    max_lifetime_secs: u64,
+    #[serde(default)]
+    idle_timeout_secs: Option<u64>,
+}
+impl SupervisorConfig {
+    fn lifetimes(&self) -> Result<(u64, Option<u64>), Error> {
+        let lifetime = bounded_lifetime(self.max_lifetime_secs)?;
+        let idle = self.idle_timeout_secs.map(bounded_lifetime).transpose()?;
+        if idle.is_some_and(|idle| idle > lifetime) { return Err(Error::Invalid); }
+        Ok((lifetime, idle))
+    }
+}
+fn bounded_lifetime(secs: u64) -> Result<u64, Error> {
+    if (MIN_LIFETIME_SECS..=MAX_LIFETIME_SECS).contains(&secs) { Ok(secs) } else { Err(Error::Invalid) }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,6 +107,10 @@ enum AdminControl {
     IssueSession { principal: String, tasks: Vec<Uuid>, expires_at: i64 },
     RevokeSession { session: Uuid },
     Audit { #[serde(default)] offset: usize },
+    ListTasks { #[serde(default)] offset: usize },
+    ListRecords { #[serde(default)] offset: usize },
+    ListGrants { #[serde(default)] offset: usize, #[serde(default)] record: Option<Uuid> },
+    ListSessions { #[serde(default)] offset: usize },
     Shutdown,
 }
 enum AdminRequest { Control(AdminControl), Work(WorkRequest) }
@@ -111,6 +136,18 @@ struct Peer {
 fn now() -> i64 { Utc::now().timestamp() }
 fn identifier(value: &str) -> bool { !value.is_empty() && value.len() <= 2048 }
 fn failure(error: Error) -> Value { json!({"ok": false, "error": error.to_string()}) }
+fn serving(now: Instant, deadline: Instant, last_request: Instant, idle: Option<Duration>) -> bool {
+    now < deadline && idle.is_none_or(|limit| now.saturating_duration_since(last_request) < limit)
+}
+fn attach_runtime(mut status: Value, sessions: &Sessions, now_ts: i64, deadline_secs: u64) -> Value {
+    let (live, pending) = sessions.census(now_ts);
+    if let Some(object) = status.as_object_mut() {
+        object.insert("ok".into(), json!(true));
+        object.insert("sessions".into(), json!({"live": live, "pending": pending, "capacity": crate::agent_bridge::CAPACITY}));
+        object.insert("deadline_secs".into(), json!(deadline_secs));
+    }
+    status
+}
 
 pub(crate) fn open_fd(fd: RawFd) -> Result<(), Error> {
     // SAFETY: F_GETFD has no pointer arguments and cannot transfer descriptor ownership.
@@ -213,7 +250,7 @@ fn work(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: WorkReque
 }
 
 fn admin(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: AdminRequest,
-    sessions: &mut Sessions, destinations: &[Destination]) -> Result<(Value, bool), Error> {
+    sessions: &mut Sessions, destinations: &[Destination], deadline: Instant) -> Result<(Value, bool), Error> {
     match request {
         // Human-issued grants may include SecretRead. The core still checks the
         // human task's scope; workload peers always pass validate_agent below.
@@ -232,8 +269,9 @@ fn admin(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: AdminReq
                 Ok((json!({"ok": true, "permission": "secret.read", "fields": disclosure.expose()}), false))
             }
             AdminControl::Status => {
-                owner.audit_events(ctx)?;
-                Ok((json!({"ok": true}), false))
+                let secs = deadline.saturating_duration_since(Instant::now()).as_secs();
+                let status = owner.operational_status(ctx)?;
+                Ok((attach_runtime(status, sessions, now(), secs), false))
             }
             AdminControl::Shutdown => Ok((json!({"ok": true}), true)),
             AdminControl::Approve { approval } => {
@@ -244,12 +282,22 @@ fn admin(owner: &mut DurableVault, ctx: &AuthenticatedContext, request: AdminReq
                 owner.revoke_task(ctx, task, now())?;
                 Ok((json!({"ok": true}), false))
             }
-            AdminControl::IssueSession { principal, tasks, expires_at } =>
-                Ok((sessions.issue(principal, tasks, expires_at, now())?, false)),
+            AdminControl::IssueSession { principal, tasks, expires_at } => {
+                let current = now();
+                let issued = sessions.issue(principal, tasks, expires_at, current, |ids, who| {
+                    owner.validate_session_tasks(ctx, who, ids, current)
+                })?;
+                Ok((issued, false))
+            }
             AdminControl::RevokeSession { session } => {
                 sessions.revoke(session);
                 Ok((json!({"ok":true}), false))
             }
+            AdminControl::ListTasks { offset } => Ok((owner.list_tasks(ctx, offset)?, false)),
+            AdminControl::ListRecords { offset } => Ok((owner.list_records(ctx, offset)?, false)),
+            AdminControl::ListGrants { offset, record } => Ok((owner.list_grants(ctx, offset, record)?, false)),
+            AdminControl::ListSessions { offset } =>
+                Ok((sessions.list(ctx.owner(), ctx.workspace(), offset)?, false)),
             AdminControl::Audit { offset } => {
                 let all = owner.audit_events(ctx)?;
                 let total = all.len();
@@ -285,6 +333,7 @@ pub(crate) fn run(options: RunOptions) -> Result<(), Error> {
         || (config.peers.is_empty() && options.bridge_socket.is_none()) || config.peers.len() > 16 {
         return Err(Error::Invalid);
     }
+    let (lifetime, idle_secs) = config.lifetimes()?;
     if config.destinations.len() > 16 { return Err(Error::Invalid); }
     let mut destination_ids = BTreeSet::new();
     for destination in &config.destinations {
@@ -314,10 +363,13 @@ pub(crate) fn run(options: RunOptions) -> Result<(), Error> {
         else { DurableVault::open(&options.directory, &seed)? };
     drop(seed);
     drop(seed_bytes);
-    let deadline = Instant::now() + Duration::from_secs(300);
-    let mut sessions = Sessions::new(config.owner, config.workspace, session_admin, options.bridge_socket, now() + 300);
+    let deadline = Instant::now().checked_add(Duration::from_secs(lifetime)).ok_or(Error::Invalid)?;
+    let session_deadline = now().checked_add(i64::try_from(lifetime).map_err(|_| Error::Invalid)?).ok_or(Error::Invalid)?;
+    let mut sessions = Sessions::new(config.owner, config.workspace, session_admin, options.bridge_socket, session_deadline);
+    let idle = idle_secs.map(Duration::from_secs);
+    let mut last_request = Instant::now();
     loop {
-        if Instant::now() >= deadline { return Ok(()); }
+        if !serving(Instant::now(), deadline, last_request, idle) { return Ok(()); }
         for p in &mut peers {
             if p.session.is_some_and(|id| !sessions.live(id, now())) { p.active = false; }
         }
@@ -343,14 +395,14 @@ pub(crate) fn run(options: RunOptions) -> Result<(), Error> {
             if !p.active || readiness.revents == 0 { continue; }
             if p.session.is_some_and(|id| !sessions.live(id, now())) { p.active = false; continue; }
             let value = match p.channel.receive() {
-                Ok(value) => value,
+                Ok(value) => { last_request = Instant::now(); value }
                 Err(_) => { p.active = false; if p.admin { return Err(Error::InteractionRequired); } continue; }
             };
             if Instant::now() >= deadline { return Ok(()); }
             let ctx = &p.context;
             let result = if p.admin {
                 AdminRequest::parse(value)
-                    .and_then(|r| admin(&mut owner, ctx, r, &mut sessions, &config.destinations))
+                    .and_then(|r| admin(&mut owner, ctx, r, &mut sessions, &config.destinations, deadline))
             } else {
                 serde_json::from_value::<WorkRequest>(value).map_err(|_| Error::Invalid)
                     .and_then(|r| {
@@ -374,6 +426,7 @@ pub(crate) fn run(options: RunOptions) -> Result<(), Error> {
                     let fd = stream.as_raw_fd();
                     open_fd(fd)?;
                     if let Ok((id, context, channel)) = sessions.admit(stream, now()) {
+                        last_request = Instant::now();
                         peers.push(Peer { fd, context, channel, session: Some(id), admin: false, active: true });
                     }
                 }
@@ -457,5 +510,78 @@ mod tests {
             assert!(AdminRequest::parse(forged).is_err());
         }
         assert!(AdminRequest::parse(json!({"op":"read_secret","task":id,"record":id,"fields":["ApiKey"],"mutation":{}})).is_err());
+    }
+
+    fn base_config() -> Value {
+        json!({"owner":"user","workspace":"project","admin_principal":"human","peers":[]})
+    }
+    fn parsed(value: Value) -> Result<SupervisorConfig, Error> {
+        serde_json::from_value(value).map_err(|_| Error::Invalid)
+    }
+
+    #[test]
+    fn lifetime_bounds_default_to_five_minutes_and_reject_out_of_range() {
+        let config = parsed(base_config()).unwrap();
+        assert_eq!(config.lifetimes().unwrap(), (DEFAULT_LIFETIME_SECS, None));
+        let mut explicit = base_config();
+        explicit["max_lifetime_secs"] = json!(86_400);
+        explicit["idle_timeout_secs"] = json!(60);
+        assert_eq!(parsed(explicit).unwrap().lifetimes().unwrap(), (86_400, Some(60)));
+        let mut idle_null = base_config();
+        idle_null["idle_timeout_secs"] = Value::Null;
+        assert_eq!(parsed(idle_null).unwrap().lifetimes().unwrap(), (300, None));
+        for bad in [0u64, 59, 86_401] {
+            let mut value = base_config();
+            value["max_lifetime_secs"] = json!(bad);
+            assert_eq!(parsed(value.clone()).unwrap().lifetimes().unwrap_err(), Error::Invalid);
+            value = base_config();
+            value["max_lifetime_secs"] = json!(86_400);
+            value["idle_timeout_secs"] = json!(bad);
+            assert_eq!(parsed(value).unwrap().lifetimes().unwrap_err(), Error::Invalid);
+        }
+        let mut longer_idle = base_config();
+        longer_idle["max_lifetime_secs"] = json!(300);
+        longer_idle["idle_timeout_secs"] = json!(301);
+        assert_eq!(parsed(longer_idle).unwrap().lifetimes().unwrap_err(), Error::Invalid);
+        let mut unknown = base_config();
+        unknown["max_lifetime"] = json!(300);
+        assert!(parsed(unknown).is_err());
+        let start = Instant::now();
+        let deadline = start + Duration::from_secs(300);
+        assert!(serving(start, deadline, start, None));
+        assert!(!serving(deadline, deadline, start, None));
+        let idle = Some(Duration::from_secs(60));
+        assert!(serving(start + Duration::from_secs(59), deadline, start, idle));
+        assert!(!serving(start + Duration::from_secs(60), deadline, start, idle));
+        assert!(serving(start + Duration::from_secs(60), deadline, start + Duration::from_secs(30), idle));
+    }
+
+    #[test]
+    fn status_adds_session_counts_without_the_attachment_token() {
+        let mut sessions = Sessions::new("owner".into(), "project".into(), "human".into(),
+            Some("/private/bridge.sock".into()), 400);
+        let task = Uuid::new_v4();
+        let issued = sessions.issue("agent".into(), vec![task], 200, 100, |_, _| Ok(())).unwrap();
+        let token = issued["session"]["token"].as_str().unwrap().to_owned();
+        let status = attach_runtime(json!({"tasks":{"count":0,"capacity":10000},"frozen":false,"clock_frozen":false}),
+            &sessions, 100, 250);
+        let encoded = serde_json::to_string(&status).unwrap();
+        assert!(!encoded.contains(&token));
+        assert_eq!(status["ok"], true);
+        assert_eq!(status["deadline_secs"], 250);
+        assert_eq!(status["frozen"], false);
+        assert_eq!(status["sessions"], json!({"live": 0, "pending": 1, "capacity": 32}));
+        assert!(matches!(AdminRequest::parse(json!({"op":"list_tasks"})),
+            Ok(AdminRequest::Control(AdminControl::ListTasks { offset: 0 }))));
+        assert!(matches!(AdminRequest::parse(json!({"op":"list_records","offset":4})),
+            Ok(AdminRequest::Control(AdminControl::ListRecords { offset: 4 }))));
+        assert!(matches!(AdminRequest::parse(json!({"op":"list_sessions"})),
+            Ok(AdminRequest::Control(AdminControl::ListSessions { offset: 0 }))));
+        let record = Uuid::nil();
+        assert!(matches!(AdminRequest::parse(json!({"op":"list_grants","offset":2,"record":record})),
+            Ok(AdminRequest::Control(AdminControl::ListGrants { offset: 2, record: Some(id) })) if id == record));
+        assert!(AdminRequest::parse(json!({"op":"list_tasks","limit":1})).is_err());
+        assert!(AdminRequest::parse(json!({"op":"list_grants","record":"not-a-uuid"})).is_err());
+        assert!(AdminRequest::parse(json!({"op":"list_sessions","token":"synthetic-token"})).is_err());
     }
 }

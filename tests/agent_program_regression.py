@@ -293,7 +293,9 @@ class PrivateAcceptance(unittest.TestCase):
                     self.denied(result)
             self.assertEqual((self.owner.vault / 'state.v2').read_bytes(), raw_state,
                              'Raw owner request changed durable state')
-            self.assertEqual(self.owner.call({'op': 'status'}), {'ok': True}, 'Owner did not remain healthy')
+            status = self.owner.call({'op': 'status'})
+            self.assertTrue(status.get('ok') is True and status.get('frozen') is False
+                and status.get('clock_frozen') is False, 'Owner did not remain healthy')
         canary = 'synthetic-import-canary-not-generated'
         self.protected.extend([canary.encode(), ('Bearer ' + canary).encode()])
         imported = self.owner.call({'op': 'import_secret', 'task': ta['id'], 'request': identifier(), 'kind': 'ApiKey', 'values': {'ApiKey': canary}})

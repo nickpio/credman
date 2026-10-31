@@ -10,7 +10,7 @@ use std::time::Duration;
 
 fn attach(sessions: &mut Sessions, task: Uuid, now: Time, expiry: Time)
     -> (Uuid, AuthenticatedContext, [FramedChannel; 2]) {
-    let issued = sessions.issue("b".into(), vec![task], expiry, now)
+    let issued = sessions.issue("b".into(), vec![task], expiry, now, |_, _| Ok(()))
         .expect("session issuance must succeed");
     let token = issued["session"]["token"].as_str().expect("issued token missing");
     let (server, client) = UnixStream::pair().expect("private attachment pair unavailable");

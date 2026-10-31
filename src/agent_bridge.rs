@@ -19,7 +19,7 @@ use zeroize::Zeroizing;
 use crate::agent::{AuthenticatedContext, Error};
 use crate::agent_ipc::{strict_json, FramedChannel};
 
-const CAPACITY: usize = 32;
+pub(crate) const CAPACITY: usize = 32;
 const MAX_TASKS: usize = 64;
 
 pub(crate) struct Sessions {
@@ -40,7 +40,8 @@ impl Sessions {
     pub(crate) fn new(owner: String, workspace: String, admin: String, socket: Option<PathBuf>, deadline: i64) -> Self {
         Self { entries: BTreeMap::new(), owner, workspace, admin, socket, deadline }
     }
-    pub(crate) fn issue(&mut self, principal: String, tasks: Vec<Uuid>, expires_at: i64, now: i64) -> Result<Value, Error> {
+    pub(crate) fn issue(&mut self, principal: String, tasks: Vec<Uuid>, expires_at: i64, now: i64,
+        tasks_valid: impl FnOnce(&[Uuid], &str) -> Result<(), Error>) -> Result<Value, Error> {
         self.entries.retain(|_, s| s.expires_at > now);
         let allowed: BTreeSet<_> = tasks.iter().copied().collect();
         if principal.trim().is_empty() || principal.len() > 2048 || principal == self.admin
@@ -48,6 +49,7 @@ impl Sessions {
             || allowed.contains(&Uuid::nil()) || expires_at <= now || expires_at > self.deadline {
             return Err(Error::Invalid);
         }
+        tasks_valid(&tasks, &principal)?;
         let socket = self.socket.as_ref().ok_or(Error::InteractionRequired)?;
         if self.entries.len() >= CAPACITY { return Err(Error::Capacity); }
         let mut random = Zeroizing::new([0u8; 32]);
@@ -59,6 +61,21 @@ impl Sessions {
         Ok(json!({"ok":true,"session":{"id":id,"socket":socket,"token":token.as_str(),"expires_at":expires_at}}))
     }
     pub(crate) fn revoke(&mut self, id: Uuid) { self.entries.remove(&id); }
+    pub(crate) fn census(&self, now: i64) -> (usize, usize) {
+        self.entries.values().fold((0, 0), |(live, pending), session| {
+            if session.expires_at <= now { (live, pending) }
+            else if session.digest.is_none() { (live + 1, pending) }
+            else { (live, pending + 1) }
+        })
+    }
+    pub(crate) fn list(&self, owner: &str, workspace: &str, offset: usize) -> Result<Value, Error> {
+        if owner != self.owner || workspace != self.workspace { return Err(Error::Denied); }
+        let items = self.entries.iter().map(|(id, session)| json!({
+            "id": id, "principal": session.principal, "tasks": session.tasks,
+            "expires_at": session.expires_at, "attached": session.digest.is_none(),
+        })).collect();
+        crate::agent::bounded_page("sessions", items, offset)
+    }
     pub(crate) fn live(&self, id: Uuid, now: i64) -> bool {
         self.entries.get(&id).is_some_and(|s| s.expires_at > now && s.digest.is_none())
     }
@@ -186,7 +203,15 @@ impl Drop for Listener {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SessionFile { id: Uuid, socket: PathBuf, #[serde(deserialize_with = "secret")] token: Zeroizing<String>, expires_at: i64 }
-pub(crate) fn connect(path: &Path, now: i64) -> Result<FramedChannel, Error> {
+/// Frontend lifetime is the session expiry, never a fixed process timeout, and never past the owner maximum.
+pub(crate) fn frontend_deadline(expires_at: i64, now: i64) -> Result<Duration, Error> {
+    let remaining = expires_at.checked_sub(now).ok_or(Error::Invalid)?;
+    if remaining <= 0 { return Err(Error::Denied); }
+    if remaining > crate::agent_broker::MAX_LIFETIME_SECS as i64 { return Err(Error::Invalid); }
+    Ok(Duration::from_secs(u64::try_from(remaining).map_err(|_| Error::Invalid)?))
+}
+
+pub(crate) fn connect(path: &Path, now: i64) -> Result<(FramedChannel, i64), Error> {
     let (directory, name) = parent(path)?;
     // O_NONBLOCK prevents a malicious FIFO from blocking before the regular-file check.
     // SAFETY: directory/name remain live; openat returns a fresh descriptor.
@@ -202,7 +227,8 @@ pub(crate) fn connect(path: &Path, now: i64) -> Result<FramedChannel, Error> {
     if bytes.len() > 4096 { return Err(Error::Invalid); }
     let session: SessionFile = serde_json::from_value(strict_json(&bytes).map_err(|_| Error::Invalid)?)
         .map_err(|_| Error::Invalid)?;
-    if session.id.is_nil() || session.expires_at <= now { return Err(Error::Denied); }
+    if session.id.is_nil() { return Err(Error::Denied); }
+    frontend_deadline(session.expires_at, now)?;
     let (directory, name) = parent(&session.socket)?;
     let stat = stat_at(&directory, &name)?;
     if stat.st_mode & libc::S_IFMT != libc::S_IFSOCK || stat.st_mode & 0o7777 != 0o600
@@ -212,7 +238,7 @@ pub(crate) fn connect(path: &Path, now: i64) -> Result<FramedChannel, Error> {
     let mut channel = FramedChannel::new(stream, Duration::from_secs(5), Duration::from_secs(5)).map_err(|_| Error::Denied)?;
     channel.send(&json!({"op":"attach","token":session.token.as_str()})).map_err(|_| Error::Denied)?;
     if channel.receive().map_err(|_| Error::Denied)? != json!({"ok":true}) { return Err(Error::Denied); }
-    Ok(channel)
+    Ok((channel, session.expires_at))
 }
 fn connect_bounded(path: &Path) -> Result<UnixStream, Error> {
     let bytes = path.as_os_str().as_encoded_bytes();
@@ -240,14 +266,18 @@ fn connect_bounded(path: &Path) -> Result<UnixStream, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::Digest;
     fn sessions() -> Sessions {
         Sessions::new("owner".into(), "workspace".into(), "human".into(), Some("/private/bridge.sock".into()), 400)
+    }
+    fn issue(sessions: &mut Sessions, principal: &str, tasks: Vec<Uuid>, expiry: i64, now: i64) -> Result<Value, Error> {
+        sessions.issue(principal.into(), tasks, expiry, now, |_, _| Ok(()))
     }
     #[test]
     fn session_token_is_single_use_and_scope_survives_attach() {
         let mut sessions = sessions();
         let task = Uuid::new_v4();
-        let issued = sessions.issue("agent".into(), vec![task], 200, 100).unwrap();
+        let issued = issue(&mut sessions, "agent", vec![task], 200, 100).unwrap();
         let token = issued["session"]["token"].as_str().unwrap();
         let id: Uuid = serde_json::from_value(issued["session"]["id"].clone()).unwrap();
         assert_eq!(token.len(), 64);
@@ -269,9 +299,58 @@ mod tests {
             ("human", vec![task], 200), ("", vec![task], 200), ("agent", vec![], 200),
             ("agent", vec![task, task], 200), ("agent", vec![Uuid::nil()], 200),
             ("agent", vec![task], 100), ("agent", vec![task], 401),
-        ] { assert!(sessions.issue(principal.into(), tasks, expiry, 100).is_err()); }
-        for _ in 0..CAPACITY { sessions.issue("agent".into(), vec![task], 200, 100).unwrap(); }
-        assert!(matches!(sessions.issue("agent".into(), vec![task], 200, 100), Err(Error::Capacity)));
-        assert!(sessions.issue("agent".into(), vec![task], 300, 200).is_ok());
+        ] {
+            assert!(sessions.issue(principal.into(), tasks, expiry, 100, |_, _| panic!("rejected before validation")).is_err());
+        }
+        for _ in 0..CAPACITY { issue(&mut sessions, "agent", vec![task], 200, 100).unwrap(); }
+        assert!(matches!(issue(&mut sessions, "agent", vec![task], 200, 100), Err(Error::Capacity)));
+        assert!(issue(&mut sessions, "agent", vec![task], 300, 200).is_ok());
+    }
+    #[test]
+    fn issuance_rejects_tasks_the_vault_refuses_and_lists_omit_the_token() {
+        let mut sessions = sessions();
+        let task = Uuid::new_v4();
+        let mut calls = 0;
+        let refused = sessions.issue("agent".into(), vec![task], 200, 100, |tasks, principal| {
+            calls += 1;
+            assert_eq!(principal, "agent");
+            assert_eq!(tasks, &[task]);
+            Err(Error::Invalid)
+        });
+        assert_eq!(refused.unwrap_err(), Error::Invalid);
+        assert_eq!(calls, 1);
+        assert_eq!(sessions.census(100), (0, 0));
+        let issued = sessions.issue("agent".into(), vec![task], 200, 100, |tasks, principal| {
+            assert_eq!((principal, tasks), ("agent", &[task][..]));
+            Ok(())
+        }).unwrap();
+        let token = issued["session"]["token"].as_str().unwrap().to_owned();
+        let digest = sha2::Sha256::digest(token.as_bytes());
+        let digest_hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        assert_eq!(sessions.census(100), (0, 1));
+        let listed = sessions.list("owner", "workspace", 0).unwrap();
+        let encoded = serde_json::to_string(&listed).unwrap();
+        assert!(!encoded.contains(&token) && !encoded.contains(&digest_hex) && !encoded.contains("digest"));
+        assert_eq!(listed["total"], 1);
+        assert_eq!(listed["has_more"], false);
+        assert_eq!(listed["sessions"][0]["attached"], false);
+        assert_eq!(listed["sessions"][0]["principal"], "agent");
+        assert_eq!(listed["sessions"][0]["expires_at"], 200);
+        assert_eq!(listed["sessions"][0]["tasks"], json!([task]));
+        let id: Uuid = serde_json::from_value(issued["session"]["id"].clone()).unwrap();
+        sessions.attach(&token, 100).unwrap();
+        assert_eq!(sessions.census(100), (1, 0));
+        assert_eq!(sessions.list("owner", "workspace", 0).unwrap()["sessions"][0]["attached"], true);
+        assert_eq!(sessions.census(200), (0, 0));
+        assert!(sessions.list("owner", "workspace", 0).unwrap()["sessions"].as_array().unwrap().iter()
+            .any(|session| session["id"] == json!(id)));
+        assert_eq!(sessions.list("other", "workspace", 0).unwrap_err(), Error::Denied);
+        assert_eq!(sessions.list("owner", "elsewhere", 0).unwrap_err(), Error::Denied);
+        assert_eq!(frontend_deadline(400, 100).unwrap(), Duration::from_secs(300));
+        let max = crate::agent_broker::MAX_LIFETIME_SECS as i64;
+        assert_eq!(frontend_deadline(100 + max, 100).unwrap(), Duration::from_secs(max as u64));
+        assert_eq!(frontend_deadline(100, 100), Err(Error::Denied));
+        assert_eq!(frontend_deadline(99, 100), Err(Error::Denied));
+        assert_eq!(frontend_deadline(100 + max + 1, 100), Err(Error::Invalid));
     }
 }

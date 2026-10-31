@@ -9,8 +9,8 @@ mod cli;
 mod crypto;
 
 fn main() {
-    if let Err(e) = cli::run() {
-        eprintln!("error: {e:#}");
-        std::process::exit(1);
+    if let Err(failure) = cli::run() {
+        eprintln!("{}", failure.report());
+        std::process::exit(failure.code());
     }
 }

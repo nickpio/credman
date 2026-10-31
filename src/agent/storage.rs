@@ -371,6 +371,8 @@ impl DurableVault {
         self.app.audit_events(ctx)
     }
 
+    pub(in crate::agent) fn admin_app(&self) -> &Application { &self.app }
+    pub(in crate::agent) fn admin_frozen(&self) -> bool { self.frozen || self.store.blocked }
 }
 
 mod workflow;
